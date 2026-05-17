@@ -2,9 +2,9 @@
   <v-sheet border rounded>
     <v-data-table
       :headers="headers"
-      :hide-default-footer="customers.length < 11"
-      item-value="customer_id"
-      :items="customers"
+      :hide-default-footer="drivers.length < 11"
+      item-value="driver_id"
+      :items="drivers"
     >
       <template #top>
         <v-toolbar flat>
@@ -15,7 +15,7 @@
               size="x-small"
               start
             />
-            Клиенты
+            Водители
           </v-toolbar-title>
 
           <v-btn
@@ -23,7 +23,7 @@
             class="me-2"
             prepend-icon="mdi-plus"
             rounded="lg"
-            text="Добавить клиента"
+            text="Добавить водителя"
             @click="add"
           />
         </v-toolbar>
@@ -35,14 +35,14 @@
             color="medium-emphasis"
             icon="mdi-pencil"
             size="small"
-            @click="edit(item.customer_id)"
+            @click="edit(item.driver_id)"
           />
 
           <v-icon
             color="medium-emphasis"
             icon="mdi-delete"
             size="small"
-            @click="remove(item.customer_id)"
+            @click="remove(item.driver_id)"
           />
         </div>
       </template>
@@ -62,8 +62,8 @@
 
   <v-dialog v-model="dialog" max-width="500">
     <v-card
-      :subtitle="`${isEditing ? 'Обновите существующего' : 'Создайте нового'} клиента`"
-      :title="`${isEditing ? 'Редактирование' : 'Добавление'} клиента`"
+      :subtitle="`${isEditing ? 'Обновите существующего' : 'Создайте нового'} водителя`"
+      :title="`${isEditing ? 'Редактирование' : 'Добавление'} водителя`"
     >
       <template #text>
         <v-row>
@@ -83,13 +83,6 @@
             <v-text-field
               v-model="formModel.phone_number"
               label="Номер телефона"
-            />
-          </v-col>
-
-          <v-col cols="12">
-            <v-text-field
-              v-model="formModel.passport_data"
-              label="Паспортные данные"
             />
           </v-col>
         </v-row>
@@ -116,36 +109,32 @@ const db = inject(PGLiteKey);
 
 function createNewRecord() {
   return {
-    customer_id: null,
+    driver_id: null,
     surname: "",
     name: "",
     patronymic: "",
     phone_number: "",
-    passport_data: "",
   };
 }
 
-const customers = ref([]);
+const drivers = ref([]);
 const formModel = ref(createNewRecord());
 const dialog = shallowRef(false);
-const isEditing = toRef(() => !!formModel.value.customer_id);
+const isEditing = toRef(() => !!formModel.value.driver_id);
 
 const headers = [
   { title: "Фамилия", key: "surname", align: "start" },
   { title: "Имя", key: "name" },
   { title: "Отчество", key: "patronymic" },
   { title: "Номер телефона", key: "phone_number", align: "end" },
-  { title: "Паспорт", key: "passport_data", align: "end" },
   { title: "Действия", key: "actions", align: "end", sortable: false },
 ];
 
 async function loadData() {
   if (!db) return;
   try {
-    const res = await db.query(
-      "SELECT * FROM customer ORDER BY customer_id ASC;",
-    );
-    customers.value = res.rows;
+    const res = await db.query("SELECT * FROM driver ORDER BY driver_id ASC;");
+    drivers.value = res.rows;
   } catch (error) {
     console.error(error);
   }
@@ -160,29 +149,24 @@ function add() {
   dialog.value = true;
 }
 
-function edit(customer_id) {
-  const found = customers.value.find(
-    (customer) => customer.customer_id === customer_id,
-  );
+function edit(driver_id) {
+  const found = drivers.value.find((driver) => driver.driver_id === driver_id);
   if (found) {
     formModel.value = {
-      customer_id: found.customer_id,
+      driver_id: found.driver_id,
       surname: found.surname,
       name: found.name,
       patronymic: found.patronymic,
       phone_number: found.phone_number,
-      passport_data: found.passport_data,
     };
     dialog.value = true;
   }
 }
 
-async function remove(customer_id) {
+async function remove(driver_id) {
   if (!confirm("Вы уверены?")) return;
   try {
-    await db.query("DELETE FROM customer WHERE customer_id = $1;", [
-      customer_id,
-    ]);
+    await db.query("DELETE FROM driver WHERE driver_id = $1;", [driver_id]);
     await loadData();
   } catch (error) {
     console.error(error);
@@ -193,24 +177,22 @@ async function save() {
   try {
     await (isEditing.value
       ? db.query(
-          `UPDATE customer SET surname = $1, "name" = $2, patronymic = $3, phone_number = $4, passport_data = $5 WHERE customer_id = $6;`,
+          `UPDATE driver SET surname = $1, "name" = $2, patronymic = $3, phone_number = $4 WHERE driver_id = $5;`,
           [
             formModel.value.surname,
             formModel.value.name,
             formModel.value.patronymic,
             formModel.value.phone_number,
-            formModel.value.passport_data,
-            formModel.value.customer_id,
+            formModel.value.driver_id,
           ],
         )
       : db.query(
-          `INSERT INTO customer (surname, "name", patronymic, phone_number, passport_data) VALUES ($1, $2, $3, $4, $5);`,
+          `INSERT INTO driver (surname, "name", patronymic, phone_number) VALUES ($1, $2, $3, $4);`,
           [
             formModel.value.surname,
             formModel.value.name,
             formModel.value.patronymic,
             formModel.value.phone_number,
-            formModel.value.passport_data,
           ],
         ));
     await loadData();

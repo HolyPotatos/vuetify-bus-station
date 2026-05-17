@@ -3,6 +3,7 @@
     <v-data-table
       :headers="headers"
       :hide-default-footer="tickets.length < 11"
+      item-value="ticket_id"
       :items="tickets"
     >
       <template #top>
@@ -10,11 +11,10 @@
           <v-toolbar-title>
             <v-icon
               color="medium-emphasis"
-              icon="mdi-bus"
+              icon="mdi-ticket"
               size="x-small"
               start
             />
-
             Билеты
           </v-toolbar-title>
 
@@ -29,7 +29,7 @@
         </v-toolbar>
       </template>
 
-      <template #item.buy_time="{ value }">
+      <template #item.purchase_date="{ value }">
         {{ formatDate(value) }}
       </template>
 
@@ -39,14 +39,14 @@
             color="medium-emphasis"
             icon="mdi-pencil"
             size="small"
-            @click="edit(item.id)"
+            @click="edit(item.ticket_id)"
           />
 
           <v-icon
             color="medium-emphasis"
             icon="mdi-delete"
             size="small"
-            @click="remove(item.id)"
+            @click="remove(item.ticket_id)"
           />
         </div>
       </template>
@@ -56,7 +56,7 @@
           border
           prepend-icon="mdi-backup-restore"
           rounded="lg"
-          text="Reset data"
+          text="Загрузить тестовые данные"
           variant="text"
           @click="reset"
         />
@@ -64,81 +64,72 @@
     </v-data-table>
   </v-sheet>
 
-  <v-dialog v-model="dialog" max-width="500">
+  <v-dialog v-model="dialog" max-width="700">
     <v-card
-      :subtitle="`${isEditing ? 'Обновите существующий' : 'Создайте новый'} билет`"
-      :title="`${isEditing ? 'Редактируйте' : 'Добавьте'} билет`"
+      :subtitle="`${isEditing ? 'Обновление существующего' : 'Создание нового'} билета`"
+      :title="`${isEditing ? 'Редактирование' : 'Добавление'} билета`"
     >
       <template #text>
         <v-row>
           <v-col cols="12" md="6">
             <v-select
-              v-model="formModel.trip"
-              :items="['1', '2', '3']"
+              v-model="formModel.trip_id"
+              item-title="trip_name"
+              item-value="trip_id"
+              :items="tripsList"
               label="Номер рейса"
             />
           </v-col>
 
           <v-col cols="12" md="6">
             <v-select
-              v-model="formModel.employee"
-              :items="['Морозова Е.И.', 'Соколова Д.А.']"
-              label="Кассир"
+              v-model="formModel.shift_id"
+              item-title="shift_name"
+              item-value="shift_id"
+              :items="shiftsList"
+              label="Смена (Кассир)"
             />
           </v-col>
 
           <v-col cols="12" md="6">
             <v-select
-              v-model="formModel.customer"
-              :items="[
-                'Иванов И.И.',
-                'Петров П.П.',
-                'Иванова А.И.',
-                'Никушина В.В.',
-              ]"
+              v-model="formModel.customer_id"
+              item-title="customer_name"
+              item-value="customer_id"
+              :items="customersList"
               label="Клиент"
             />
           </v-col>
 
           <v-col cols="12" md="6">
+            <v-text-field
+              v-model="formModel.purchase_date"
+              label="Дата и время покупки"
+              type="datetime-local"
+            />
+          </v-col>
+
+          <v-col cols="12" md="6">
             <v-select
-              v-model="formModel.bus_stop_in"
-              :items="[
-                'Чита',
-                'Улёты',
-                'Хилок',
-                'Петровск-Забайкальский',
-                'Мухоршибирь',
-                'Улан-Удэ',
-              ]"
+              v-model="formModel.bus_stop_in_id"
+              item-title="title"
+              item-value="bus_stop_id"
+              :items="busStopsList"
               label="Станция посадки"
             />
           </v-col>
 
           <v-col cols="12" md="6">
             <v-select
-              v-model="formModel.bus_stop_out"
-              :items="[
-                'Чита',
-                'Улёты',
-                'Хилок',
-                'Петровск-Забайкальский',
-                'Мухоршибирь',
-                'Улан-Удэ',
-              ]"
+              v-model="formModel.bus_stop_out_id"
+              item-title="title"
+              item-value="bus_stop_id"
+              :items="busStopsList"
               label="Станция высадки"
             />
           </v-col>
 
-          <v-col cols="12" md="6">
-            <v-text-field
-              v-model="formModel.buy_time"
-              label="Дата покупки билета"
-              type="datetime-local"
-            />
-          </v-col>
-
-          <v-col cols="12" md="6">
+          <v-col cols="12" md="4">
             <v-number-input
               v-model="formModel.price"
               label="Цена билета"
@@ -146,15 +137,11 @@
             />
           </v-col>
 
-          <v-col cols="12" md="6">
-            <v-number-input
-              v-model="formModel.seat_number"
-              label="Номер места"
-              :min="1"
-            />
+          <v-col cols="12" md="4">
+            <v-text-field v-model="formModel.seat_number" label="Номер места" />
           </v-col>
 
-          <v-col cols="12">
+          <v-col cols="12" md="4">
             <v-select
               v-model="formModel.status"
               :items="['Активный', 'Отменен', 'Завершен']"
@@ -176,220 +163,125 @@
     </v-card>
   </v-dialog>
 </template>
+
 <script setup>
-import { onMounted, ref, shallowRef, toRef } from "vue";
+import { inject, onMounted, ref, shallowRef, toRef } from "vue";
+import { PGLiteKey, resetData } from "@/plugins/db";
+
+const db = inject(PGLiteKey);
 
 function createNewRecord() {
   return {
-    trip: "",
-    employee: "",
-    customer: "",
-    bus_stop_in: "",
-    bus_stop_out: "",
-    buy_time: null,
+    ticket_id: null,
+    trip_id: null,
+    shift_id: null,
+    customer_id: null,
+    bus_stop_in_id: null,
+    bus_stop_out_id: null,
+    purchase_date: "",
     price: 0,
-    seat_number: 1,
+    seat_number: "",
     status: "Активный",
   };
 }
 
 const tickets = ref([]);
+const tripsList = ref([]);
+const shiftsList = ref([]);
+const customersList = ref([]);
+const busStopsList = ref([]);
+
 const formModel = ref(createNewRecord());
 const dialog = shallowRef(false);
-const isEditing = toRef(() => !!formModel.value.id);
+const isEditing = toRef(() => !!formModel.value.ticket_id);
 
 const headers = [
-  { title: "Номер рейса", key: "trip", align: "start" },
-  { title: "Кассир", key: "employee" },
-  { title: "Клиент", key: "customer" },
-  { title: "Станция посадки", key: "bus_stop_in" },
-  { title: "Станция высадки", key: "bus_stop_out" },
-  { title: "Время покупки", key: "buy_time" },
-  { title: "Цена билета", key: "price" },
-  { title: "Номер места", key: "seat_number" },
+  { title: "Рейс", key: "trip_name", align: "start" },
+  { title: "Кассир", key: "employee_name" },
+  { title: "Клиент", key: "customer_name" },
+  { title: "Станция посадки", key: "bus_stop_in_title" },
+  { title: "Станция высадки", key: "bus_stop_out_title" },
+  { title: "Время покупки", key: "purchase_date" },
+  { title: "Цена", key: "price" },
+  { title: "Место", key: "seat_number" },
   { title: "Статус", key: "status" },
   { title: "Действия", key: "actions", align: "end", sortable: false },
 ];
 
-onMounted(() => {
-  reset();
+async function loadRelations() {
+  if (!db) return;
+  try {
+    const tRes = await db.query(
+      `SELECT trip_id, 'Рейс ' || trip_id AS trip_name FROM trip ORDER BY trip_id DESC;`,
+    );
+    tripsList.value = tRes.rows;
+
+    const sRes = await db.query(`
+      SELECT s.shift_id, 'Смена ' || s.shift_id || ' (' || e.surname || ' ' || substring(e."name" from 1 for 1) || '.)' AS shift_name 
+      FROM shift s 
+      JOIN employee e ON s.employee_id = e.employee_id 
+      ORDER BY s.shift_id DESC;
+    `);
+    shiftsList.value = sRes.rows;
+
+    const cRes = await db.query(`
+      SELECT customer_id, surname || ' ' || substring("name" from 1 for 1) || '.' AS customer_name 
+      FROM customer 
+      ORDER BY surname ASC;
+    `);
+    customersList.value = cRes.rows;
+
+    const bsRes = await db.query(
+      `SELECT bus_stop_id, title FROM bus_stop ORDER BY title ASC;`,
+    );
+    busStopsList.value = bsRes.rows;
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function loadData() {
+  if (!db) return;
+  try {
+    const query = `
+      SELECT 
+        tk.ticket_id, tk.trip_id, tk.shift_id, tk.customer_id, tk.bus_stop_in_id, tk.bus_stop_out_id,
+        tk.purchase_date, tk.price, tk.seat_number, tk.status,
+        'Рейс ' || tk.trip_id AS trip_name,
+        e.surname || ' ' || substring(e."name" from 1 for 1) || '.' AS employee_name,
+        c.surname || ' ' || substring(c."name" from 1 for 1) || '.' AS customer_name,
+        bs_in.title AS bus_stop_in_title,
+        bs_out.title AS bus_stop_out_title
+      FROM ticket tk
+      JOIN shift s ON tk.shift_id = s.shift_id
+      JOIN employee e ON s.employee_id = e.employee_id
+      JOIN customer c ON tk.customer_id = c.customer_id
+      JOIN bus_stop bs_in ON tk.bus_stop_in_id = bs_in.bus_stop_id
+      JOIN bus_stop bs_out ON tk.bus_stop_out_id = bs_out.bus_stop_id
+      ORDER BY tk.purchase_date DESC;
+    `;
+    const res = await db.query(query);
+    tickets.value = res.rows;
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+onMounted(async () => {
+  await loadRelations();
+  await loadData();
 });
 
-function add() {
-  formModel.value = createNewRecord();
-  dialog.value = true;
-}
-
-function edit(id) {
-  const found = tickets.value.find((ticket) => ticket.id === id);
-
-  formModel.value = {
-    id: found.id,
-    trip: found.trip,
-    employee: found.employee,
-    customer: found.customer,
-    bus_stop_in: found.bus_stop_in,
-    bus_stop_out: found.bus_stop_out,
-    buy_time: found.buy_time,
-    price: found.price,
-    seat_number: found.seat_number,
-    status: found.status,
-  };
-
-  dialog.value = true;
-}
-
-function remove(id) {
-  const index = tickets.value.findIndex((ticket) => ticket.id === id);
-  tickets.value.splice(index, 1);
-}
-
-function save() {
-  if (isEditing.value) {
-    const index = tickets.value.findIndex(
-      (ticket) => ticket.id === formModel.value.id,
-    );
-    tickets.value[index] = formModel.value;
-  } else {
-    formModel.value.id = tickets.value.length + 1;
-    tickets.value.push(formModel.value);
-  }
-
-  dialog.value = false;
-}
-
-function reset() {
-  dialog.value = false;
-  formModel.value = createNewRecord();
-  tickets.value = [
-    {
-      id: 1,
-      trip: "1",
-      employee: "Морозова Е.И.",
-      customer: "Иванов И.И.",
-      bus_stop_in: "Чита",
-      bus_stop_out: "Хилок",
-      buy_time: "2026-05-01T08:15",
-      price: 850,
-      seat_number: 12,
-      status: "Завершен",
-    },
-    {
-      id: 2,
-      trip: "1",
-      employee: "Морозова Е.И.",
-      customer: "Петров П.П.",
-      bus_stop_in: "Чита",
-      bus_stop_out: "Улан-Удэ",
-      buy_time: "2026-05-01T08:15",
-      price: 1500,
-      seat_number: 14,
-      status: "Завершен",
-    },
-    {
-      id: 3,
-      trip: "1",
-      employee: "Соколова Д.А.",
-      customer: "Никушина В.В.",
-      bus_stop_in: "Улёты",
-      bus_stop_out: "Мухоршибирь",
-      buy_time: "2026-05-02T10:05",
-      price: 900,
-      seat_number: 5,
-      status: "Завершен",
-    },
-    {
-      id: 4,
-      trip: "1",
-      employee: "Морозова Е.И.",
-      customer: "Иванова А.И.",
-      bus_stop_in: "Петровск-Забайкальский",
-      bus_stop_out: "Улан-Удэ",
-      buy_time: "2026-05-03T11:30",
-      price: 600,
-      seat_number: 22,
-      status: "Активный",
-    },
-    {
-      id: 5,
-      trip: "2",
-      employee: "Соколова Д.А.",
-      customer: "Иванов И.И.",
-      bus_stop_in: "Чита",
-      bus_stop_out: "Улёты",
-      buy_time: "2026-05-03T14:45",
-      price: 350,
-      seat_number: 2,
-      status: "Активный",
-    },
-    {
-      id: 6,
-      trip: "2",
-      employee: "Морозова Е.И.",
-      customer: "Петров П.П.",
-      bus_stop_in: "Хилок",
-      bus_stop_out: "Улан-Удэ",
-      buy_time: "2026-05-04T16:10",
-      price: 1100,
-      seat_number: 8,
-      status: "Активный",
-    },
-    {
-      id: 7,
-      trip: "2",
-      employee: "Соколова Д.А.",
-      customer: "Никушина В.В.",
-      bus_stop_in: "Чита",
-      bus_stop_out: "Петровск-Забайкальский",
-      buy_time: "2026-05-04T14:45",
-      price: 1200,
-      seat_number: 15,
-      status: "Отменен",
-    },
-    {
-      id: 8,
-      trip: "3",
-      employee: "Морозова Е.И.",
-      customer: "Иванова А.И.",
-      bus_stop_in: "Мухоршибирь",
-      bus_stop_out: "Улан-Удэ",
-      buy_time: "2026-05-05T07:50",
-      price: 400,
-      seat_number: 4,
-      status: "Активный",
-    },
-    {
-      id: 9,
-      trip: "3",
-      employee: "Соколова Д.А.",
-      customer: "Иванов И.И.",
-      bus_stop_in: "Улёты",
-      bus_stop_out: "Хилок",
-      buy_time: "2026-05-05T12:00",
-      price: 550,
-      seat_number: 18,
-      status: "Активный",
-    },
-    {
-      id: 10,
-      trip: "3",
-      employee: "Морозова Е.И.",
-      customer: "Петров П.П.",
-      bus_stop_in: "Чита",
-      bus_stop_out: "Улан-Удэ",
-      buy_time: "2026-05-06T18:30",
-      price: 1500,
-      seat_number: 1,
-      status: "Активный",
-    },
-  ];
+function formatForInput(date_string) {
+  if (!date_string) return "";
+  const d = new Date(date_string);
+  const pad = (n) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function formatDate(date_string) {
   if (!date_string) return "";
-
   const date = new Date(date_string);
-
   return date.toLocaleString("ru-RU", {
     year: "numeric",
     month: "2-digit",
@@ -397,5 +289,107 @@ function formatDate(date_string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function add() {
+  formModel.value = createNewRecord();
+  dialog.value = true;
+}
+
+function edit(ticket_id) {
+  const found = tickets.value.find((t) => t.ticket_id === ticket_id);
+  if (found) {
+    formModel.value = {
+      ticket_id: found.ticket_id,
+      trip_id: found.trip_id,
+      shift_id: found.shift_id,
+      customer_id: found.customer_id,
+      bus_stop_in_id: found.bus_stop_in_id,
+      bus_stop_out_id: found.bus_stop_out_id,
+      purchase_date: formatForInput(found.purchase_date),
+      price: Number(found.price),
+      seat_number: found.seat_number,
+      status: found.status,
+    };
+    dialog.value = true;
+  }
+}
+
+async function remove(ticket_id) {
+  if (!confirm("Вы уверены?")) return;
+  try {
+    await db.query("DELETE FROM ticket WHERE ticket_id = $1;", [ticket_id]);
+    await loadData();
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function save() {
+  if (
+    !formModel.value.trip_id ||
+    !formModel.value.shift_id ||
+    !formModel.value.customer_id ||
+    !formModel.value.bus_stop_in_id ||
+    !formModel.value.bus_stop_out_id ||
+    !formModel.value.purchase_date ||
+    !formModel.value.seat_number
+  ) {
+    alert("Пожалуйста, заполните все поля");
+    return;
+  }
+
+  if (formModel.value.bus_stop_in_id === formModel.value.bus_stop_out_id) {
+    alert("Станция посадки и высадки не могут совпадать");
+    return;
+  }
+
+  try {
+    await (isEditing.value
+      ? db.query(
+          `UPDATE ticket 
+         SET trip_id = $1, shift_id = $2, customer_id = $3, bus_stop_in_id = $4, bus_stop_out_id = $5, purchase_date = $6, price = $7, seat_number = $8, status = $9 
+         WHERE ticket_id = $10;`,
+          [
+            formModel.value.trip_id,
+            formModel.value.shift_id,
+            formModel.value.customer_id,
+            formModel.value.bus_stop_in_id,
+            formModel.value.bus_stop_out_id,
+            formModel.value.purchase_date,
+            formModel.value.price,
+            formModel.value.seat_number,
+            formModel.value.status,
+            formModel.value.ticket_id,
+          ],
+        )
+      : db.query(
+          `INSERT INTO ticket 
+         (trip_id, shift_id, customer_id, bus_stop_in_id, bus_stop_out_id, purchase_date, price, seat_number, status) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`,
+          [
+            formModel.value.trip_id,
+            formModel.value.shift_id,
+            formModel.value.customer_id,
+            formModel.value.bus_stop_in_id,
+            formModel.value.bus_stop_out_id,
+            formModel.value.purchase_date,
+            formModel.value.price,
+            formModel.value.seat_number,
+            formModel.value.status,
+          ],
+        ));
+    await loadData();
+  } catch (error) {
+    console.error(error);
+  } finally {
+    dialog.value = false;
+  }
+}
+
+async function reset() {
+  await resetData(db);
+  await loadRelations();
+  await loadData();
 }
 </script>

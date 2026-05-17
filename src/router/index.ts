@@ -5,73 +5,77 @@
  */
 
 // Composables
-import { createRouter, createWebHistory } from 'vue-router'
-import Bus_stop from '@/pages/bus_stop_tb.vue'
-import Bus from '@/pages/bus_tb.vue'
-import Carrier from '@/pages/carrier_tb.vue'
-import Customer from '@/pages/customer_tb.vue'
-import Employee from '@/pages/employee_tb.vue'
-import Index from '@/pages/index.vue'
-import Role from '@/pages/role_tb.vue'
-import Route_stop from '@/pages/route_stop_tb.vue'
-import Route from '@/pages/route_tb.vue'
-import Shift from '@/pages/shift_tb.vue'
-import Ticket from '@/pages/ticket_tb.vue'
-import Trip from '@/pages/trip_tb.vue'
+import { createRouter, createWebHistory } from "vue-router";
+import Bus_stop from "@/pages/bus_stop_tb.vue";
+import Bus from "@/pages/bus_tb.vue";
+import Carrier from "@/pages/carrier_tb.vue";
+import Customer from "@/pages/customer_tb.vue";
+import Driver from "@/pages/driver_tb.vue";
+import Employee from "@/pages/employee_tb.vue";
+import Index from "@/pages/index.vue";
+import Role from "@/pages/role_tb.vue";
+import Route_stop from "@/pages/route_stop_tb.vue";
+import Route from "@/pages/route_tb.vue";
+import Shift from "@/pages/shift_tb.vue";
+import Ticket from "@/pages/ticket_tb.vue";
+import Trip from "@/pages/trip_tb.vue";
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
-      path: '/',
+      path: "/",
       component: Index,
     },
     {
-      path: '/ticket',
+      path: "/ticket",
       component: Ticket,
     },
     {
-      path: '/trip',
+      path: "/trip",
       component: Trip,
     },
     {
-      path: '/shift',
+      path: "/shift",
       component: Shift,
     },
     {
-      path: '/route',
+      path: "/route",
       component: Route,
     },
     {
-      path: '/routestop',
+      path: "/routestop",
       component: Route_stop,
     },
     {
-      path: '/role',
+      path: "/role",
       component: Role,
     },
     {
-      path: '/employee',
+      path: "/employee",
       component: Employee,
     },
     {
-      path: '/customer',
+      path: "/customer",
       component: Customer,
     },
     {
-      path: '/carrier',
+      path: "/carrier",
       component: Carrier,
     },
     {
-      path: '/bus',
+      path: "/bus",
       component: Bus,
     },
     {
-      path: '/busstop',
+      path: "/driver",
+      component: Driver,
+    },
+    {
+      path: "/busstop",
       component: Bus_stop,
     },
-
   ],
-})
+});
 
-export default router
+export default router;

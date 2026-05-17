@@ -3,6 +3,7 @@
     <v-data-table
       :headers="headers"
       :hide-default-footer="bus_stops.length < 11"
+      item-value="bus_stop_id"
       :items="bus_stops"
     >
       <template #top>
@@ -14,7 +15,6 @@
               size="x-small"
               start
             />
-
             Остановки
           </v-toolbar-title>
 
@@ -35,14 +35,14 @@
             color="medium-emphasis"
             icon="mdi-pencil"
             size="small"
-            @click="edit(item.id)"
+            @click="edit(item.bus_stop_id)"
           />
 
           <v-icon
             color="medium-emphasis"
             icon="mdi-delete"
             size="small"
-            @click="remove(item.id)"
+            @click="remove(item.bus_stop_id)"
           />
         </div>
       </template>
@@ -52,7 +52,7 @@
           border
           prepend-icon="mdi-backup-restore"
           rounded="lg"
-          text="Reset data"
+          text="Загрузить тестовые данные"
           variant="text"
           @click="reset"
         />
@@ -88,11 +88,16 @@
     </v-card>
   </v-dialog>
 </template>
+
 <script setup>
-import { onMounted, ref, shallowRef, toRef } from "vue";
+import { inject, onMounted, ref, shallowRef, toRef } from "vue";
+import { PGLiteKey, resetData } from "@/plugins/db";
+
+const db = inject(PGLiteKey);
 
 function createNewRecord() {
   return {
+    bus_stop_id: null,
     title: "",
   };
 }
@@ -100,15 +105,27 @@ function createNewRecord() {
 const bus_stops = ref([]);
 const formModel = ref(createNewRecord());
 const dialog = shallowRef(false);
-const isEditing = toRef(() => !!formModel.value.id);
+const isEditing = toRef(() => !!formModel.value.bus_stop_id);
 
 const headers = [
   { title: "Название остановки", key: "title", align: "start" },
   { title: "Действия", key: "actions", align: "end", sortable: false },
 ];
 
+async function loadData() {
+  if (!db) return;
+  try {
+    const res = await db.query(
+      "SELECT * FROM bus_stop ORDER BY bus_stop_id ASC;",
+    );
+    bus_stops.value = res.rows;
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 onMounted(() => {
-  reset();
+  loadData();
 });
 
 function add() {
@@ -116,64 +133,56 @@ function add() {
   dialog.value = true;
 }
 
-function edit(id) {
-  const found = bus_stops.value.find((bus_stop) => bus_stop.id === id);
-
-  formModel.value = {
-    id: found.id,
-    title: found.title,
-  };
-
-  dialog.value = true;
+function edit(bus_stop_id) {
+  const found = bus_stops.value.find(
+    (bus_stop) => bus_stop.bus_stop_id === bus_stop_id,
+  );
+  if (found) {
+    formModel.value = {
+      bus_stop_id: found.bus_stop_id,
+      title: found.title,
+    };
+    dialog.value = true;
+  }
 }
 
-function remove(id) {
-  const index = bus_stops.value.findIndex((bus_stop) => bus_stop.id === id);
-  bus_stops.value.splice(index, 1);
+async function remove(bus_stop_id) {
+  if (!confirm("Вы уверены?")) return;
+  try {
+    await db.query("DELETE FROM bus_stop WHERE bus_stop_id = $1;", [
+      bus_stop_id,
+    ]);
+    await loadData();
+  } catch (error) {
+    console.error(error);
+  }
 }
 
-function save() {
-  if (isEditing.value) {
-    const index = bus_stops.value.findIndex(
-      (bus_stop) => bus_stop.id === formModel.value.id,
-    );
-    bus_stops.value[index] = formModel.value;
-  } else {
-    formModel.value.id = bus_stops.value.length + 1;
-    bus_stops.value.push(formModel.value);
+async function save() {
+  if (!formModel.value.title.trim()) {
+    alert("Название остановки не может быть пустым");
+    return;
   }
 
-  dialog.value = false;
+  try {
+    await (isEditing.value
+      ? db.query("UPDATE bus_stop SET title = $1 WHERE bus_stop_id = $2;", [
+          formModel.value.title,
+          formModel.value.bus_stop_id,
+        ])
+      : db.query("INSERT INTO bus_stop (title) VALUES ($1);", [
+          formModel.value.title,
+        ]));
+    await loadData();
+  } catch (error) {
+    console.error(error);
+  } finally {
+    dialog.value = false;
+  }
 }
 
-function reset() {
-  dialog.value = false;
-  formModel.value = createNewRecord();
-  bus_stops.value = [
-    {
-      id: 1,
-      title: "Чита",
-    },
-    {
-      id: 2,
-      title: "Улёты",
-    },
-    {
-      id: 3,
-      title: "Хилок",
-    },
-    {
-      id: 4,
-      title: "Петровск-Забайкальский",
-    },
-    {
-      id: 5,
-      title: "Мухоршибирь",
-    },
-    {
-      id: 6,
-      title: "Улан-Удэ",
-    },
-  ];
+async function reset() {
+  await resetData(db);
+  await loadData();
 }
 </script>

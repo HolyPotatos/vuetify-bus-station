@@ -3,6 +3,7 @@
     <v-data-table
       :headers="headers"
       :hide-default-footer="employee_role.length < 11"
+      item-value="role_id"
       :items="employee_role"
     >
       <template #top>
@@ -14,7 +15,6 @@
               size="x-small"
               start
             />
-
             Роли сотрудников
           </v-toolbar-title>
 
@@ -23,7 +23,7 @@
             class="me-2"
             prepend-icon="mdi-plus"
             rounded="lg"
-            text="Добавить остановку"
+            text="Добавить роль"
             @click="add"
           />
         </v-toolbar>
@@ -35,14 +35,14 @@
             color="medium-emphasis"
             icon="mdi-pencil"
             size="small"
-            @click="edit(item.id)"
+            @click="edit(item.role_id)"
           />
 
           <v-icon
             color="medium-emphasis"
             icon="mdi-delete"
             size="small"
-            @click="remove(item.id)"
+            @click="remove(item.role_id)"
           />
         </div>
       </template>
@@ -52,7 +52,7 @@
           border
           prepend-icon="mdi-backup-restore"
           rounded="lg"
-          text="Reset data"
+          text="Загрузить тестовые данные"
           variant="text"
           @click="reset"
         />
@@ -77,19 +77,22 @@
 
       <v-card-actions class="bg-surface-light">
         <v-btn text="Отмена" variant="plain" @click="dialog = false" />
-
         <v-spacer />
-
         <v-btn text="Сохранить" @click="save" />
       </v-card-actions>
     </v-card>
   </v-dialog>
 </template>
+
 <script setup>
-import { onMounted, ref, shallowRef, toRef } from "vue";
+import { inject, onMounted, ref, shallowRef, toRef } from "vue";
+import { PGLiteKey, resetData } from "@/plugins/db";
+
+const db = inject(PGLiteKey);
 
 function createNewRecord() {
   return {
+    role_id: null,
     title: "",
   };
 }
@@ -97,15 +100,25 @@ function createNewRecord() {
 const employee_role = ref([]);
 const formModel = ref(createNewRecord());
 const dialog = shallowRef(false);
-const isEditing = toRef(() => !!formModel.value.id);
+const isEditing = toRef(() => !!formModel.value.role_id);
 
 const headers = [
   { title: "Название роли", key: "title", align: "start" },
   { title: "Действия", key: "actions", align: "end", sortable: false },
 ];
 
+async function loadData() {
+  if (!db) return;
+  try {
+    const res = await db.query('SELECT * FROM "role" ORDER BY role_id ASC;');
+    employee_role.value = res.rows;
+  } catch (error) {
+    console.error("Ошибка при загрузке данных:", error);
+  }
+}
+
 onMounted(() => {
-  reset();
+  loadData();
 });
 
 function add() {
@@ -113,56 +126,53 @@ function add() {
   dialog.value = true;
 }
 
-function edit(id) {
-  const found = employee_role.value.find((role) => role.id === id);
-
-  formModel.value = {
-    id: found.id,
-    title: found.title,
-  };
-
-  dialog.value = true;
+function edit(role_id) {
+  const found = employee_role.value.find((role) => role.role_id === role_id);
+  if (found) {
+    formModel.value = {
+      role_id: found.role_id,
+      title: found.title,
+    };
+    dialog.value = true;
+  }
 }
 
-function remove(id) {
-  const index = employee_role.value.findIndex((role) => role.id === id);
-  employee_role.value.splice(index, 1);
+async function remove(role_id) {
+  if (!confirm("Удалить эту роль?")) return;
+  try {
+    await db.query('DELETE FROM "role" WHERE role_id = $1;', [role_id]);
+    await loadData();
+  } catch (error) {
+    console.error("Ошибка при удалении:", error);
+    alert("Не удалось удалить роль. Возможно, к ней привязаны сотрудники.");
+  }
 }
 
-function save() {
-  if (isEditing.value) {
-    const index = employee_role.value.findIndex(
-      (role) => role.id === formModel.value.id,
-    );
-    employee_role.value[index] = formModel.value;
-  } else {
-    formModel.value.id = employee_role.value.length + 1;
-    employee_role.value.push(formModel.value);
+async function save() {
+  if (!formModel.value.title.trim()) {
+    alert("Название роли не может быть пустым");
+    return;
   }
 
-  dialog.value = false;
+  try {
+    await (isEditing.value
+      ? db.query('UPDATE "role" SET title = $1 WHERE role_id = $2;', [
+          formModel.value.title,
+          formModel.value.role_id,
+        ])
+      : db.query('INSERT INTO "role" (title) VALUES ($1);', [
+          formModel.value.title,
+        ]));
+    await loadData();
+  } catch (error) {
+    console.error("Ошибка при сохранении:", error);
+  } finally {
+    dialog.value = false;
+  }
 }
 
-function reset() {
-  dialog.value = false;
-  formModel.value = createNewRecord();
-  employee_role.value = [
-    {
-      id: 1,
-      title: "Кассир",
-    },
-    {
-      id: 2,
-      title: "Старший кассир",
-    },
-    {
-      id: 3,
-      title: "Диспетчер",
-    },
-    {
-      id: 4,
-      title: "Администратор базы данных",
-    },
-  ];
+async function reset() {
+  await resetData(db);
+  await loadData();
 }
 </script>

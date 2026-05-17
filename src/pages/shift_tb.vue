@@ -3,6 +3,7 @@
     <v-data-table
       :headers="headers"
       :hide-default-footer="shifts.length < 11"
+      item-value="shift_id"
       :items="shifts"
     >
       <template #top>
@@ -14,7 +15,6 @@
               size="x-small"
               start
             />
-
             Смены
           </v-toolbar-title>
 
@@ -43,14 +43,14 @@
             color="medium-emphasis"
             icon="mdi-pencil"
             size="small"
-            @click="edit(item.id)"
+            @click="edit(item.shift_id)"
           />
 
           <v-icon
             color="medium-emphasis"
             icon="mdi-delete"
             size="small"
-            @click="remove(item.id)"
+            @click="remove(item.shift_id)"
           />
         </div>
       </template>
@@ -60,7 +60,7 @@
           border
           prepend-icon="mdi-backup-restore"
           rounded="lg"
-          text="Reset data"
+          text="Загрузить тестовые данные"
           variant="text"
           @click="reset"
         />
@@ -77,13 +77,10 @@
         <v-row>
           <v-col cols="12">
             <v-select
-              v-model="formModel.employee"
-              :items="[
-                'Морозова Е.И.',
-                'Соколов Д.А.',
-                'Павлова А.С.',
-                'Белов М.Н.',
-              ]"
+              v-model="formModel.employee_id"
+              item-title="short_name"
+              item-value="employee_id"
+              :items="employees"
               label="Сотрудник"
             />
           </v-col>
@@ -109,40 +106,83 @@
       <v-divider />
 
       <v-card-actions class="bg-surface-light">
-        <v-btn text="Cancel" variant="plain" @click="dialog = false" />
-
+        <v-btn text="Отмена" variant="plain" @click="dialog = false" />
         <v-spacer />
-
-        <v-btn text="Save" @click="save" />
+        <v-btn text="Сохранить" @click="save" />
       </v-card-actions>
     </v-card>
   </v-dialog>
 </template>
+
 <script setup>
-import { onMounted, ref, shallowRef, toRef } from "vue";
+import { inject, onMounted, ref, shallowRef, toRef } from "vue";
+import { PGLiteKey, resetData } from "@/plugins/db";
+
+const db = inject(PGLiteKey);
 
 function createNewRecord() {
   return {
-    employee: "",
-    start_time: null,
-    end_time: null,
+    shift_id: null,
+    employee_id: null,
+    start_time: "",
+    end_time: "",
   };
 }
 
 const shifts = ref([]);
+const employees = ref([]);
 const formModel = ref(createNewRecord());
 const dialog = shallowRef(false);
-const isEditing = toRef(() => !!formModel.value.id);
+const isEditing = toRef(() => !!formModel.value.shift_id);
 
 const headers = [
-  { title: "Сотрудник", key: "employee", align: "start" },
+  { title: "Сотрудник", key: "employee_name", align: "start" },
   { title: "Начало смены", key: "start_time" },
   { title: "Конец смены", key: "end_time" },
   { title: "Действия", key: "actions", align: "end", sortable: false },
 ];
 
-onMounted(() => {
-  reset();
+async function loadEmployees() {
+  if (!db) return;
+  try {
+    const query = `
+      SELECT 
+        employee_id, 
+        surname || ' ' || substring("name" from 1 for 1) || '.' || COALESCE(substring(patronymic from 1 for 1) || '.', '') AS short_name 
+      FROM employee 
+      WHERE role_id IN (3, 4)
+      ORDER BY surname ASC;
+    `;
+    const res = await db.query(query);
+    employees.value = res.rows;
+  } catch (error) {
+    console.error(error);
+  }
+}
+async function loadData() {
+  if (!db) return;
+  try {
+    const query = `
+      SELECT 
+        s.shift_id, 
+        s.employee_id, 
+        s.start_time, 
+        s.end_time,
+        e.surname || ' ' || substring(e."name" from 1 for 1) || '.' || COALESCE(substring(e.patronymic from 1 for 1) || '.', '') AS employee_name
+      FROM shift s
+      JOIN employee e ON s.employee_id = e.employee_id
+      ORDER BY s.start_time DESC;
+    `;
+    const res = await db.query(query);
+    shifts.value = res.rows;
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+onMounted(async () => {
+  await loadEmployees();
+  await loadData();
 });
 
 function add() {
@@ -150,74 +190,92 @@ function add() {
   dialog.value = true;
 }
 
-function edit(id) {
-  const found = shifts.value.find((shift) => shift.id === id);
-
-  formModel.value = {
-    id: found.id,
-    employee: found.employee,
-    start_time: found.start_time,
-    end_time: found.end_time,
-  };
-
-  dialog.value = true;
+function formatForInput(date_string) {
+  if (!date_string) return "";
+  const d = new Date(date_string);
+  const pad = (n) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function remove(id) {
-  const index = shifts.value.findIndex((shift) => shift.id === id);
-  shifts.value.splice(index, 1);
+function edit(shift_id) {
+  const found = shifts.value.find((s) => s.shift_id === shift_id);
+  if (found) {
+    formModel.value = {
+      shift_id: found.shift_id,
+      employee_id: found.employee_id,
+      start_time: formatForInput(found.start_time),
+      end_time: formatForInput(found.end_time),
+    };
+    dialog.value = true;
+  }
 }
 
-function save() {
-  if (isEditing.value) {
-    const index = shifts.value.findIndex(
-      (shift) => shift.id === formModel.value.id,
-    );
-    shifts.value[index] = formModel.value;
-  } else {
-    formModel.value.id = shifts.value.length + 1;
-    shifts.value.push(formModel.value);
+async function remove(shift_id) {
+  if (!confirm("Вы уверены?")) return;
+  try {
+    await db.query("DELETE FROM shift WHERE shift_id = $1;", [shift_id]);
+    await loadData();
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function save() {
+  if (
+    !formModel.value.employee_id ||
+    !formModel.value.start_time ||
+    !formModel.value.end_time
+  ) {
+    alert("Заполните все поля");
+    return;
   }
 
-  dialog.value = false;
+  const start = new Date(formModel.value.start_time);
+  const end = new Date(formModel.value.end_time);
+
+  if (end <= start) {
+    alert(
+      "Ошибка: время окончания смены должно быть строго больше времени начала",
+    );
+    return;
+  }
+
+  try {
+    await (isEditing.value
+      ? db.query(
+          "UPDATE shift SET employee_id = $1, start_time = $2, end_time = $3 WHERE shift_id = $4;",
+          [
+            formModel.value.employee_id,
+            formModel.value.start_time,
+            formModel.value.end_time,
+            formModel.value.shift_id,
+          ],
+        )
+      : db.query(
+          "INSERT INTO shift (employee_id, start_time, end_time) VALUES ($1, $2, $3);",
+          [
+            formModel.value.employee_id,
+            formModel.value.start_time,
+            formModel.value.end_time,
+          ],
+        ));
+    await loadData();
+  } catch (error) {
+    console.error(error);
+  } finally {
+    dialog.value = false;
+  }
 }
 
-function reset() {
-  dialog.value = false;
-  formModel.value = createNewRecord();
-  shifts.value = [
-    {
-      id: 1,
-      employee: "Морозова Е.И.",
-      start_time: "2026-05-03T10:00",
-      end_time: "2026-05-03T20:00",
-    },
-    {
-      id: 2,
-      employee: "Морозова Е.И.",
-      start_time: "2026-05-04T10:00",
-      end_time: "2026-05-04T20:00",
-    },
-    {
-      id: 3,
-      employee: "Морозова Е.И.",
-      start_time: "2026-05-05T10:00",
-      end_time: "2026-05-05T20:00",
-    },
-    {
-      id: 4,
-      employee: "Соколов Д.А.",
-      start_time: "2026-05-06T10:00",
-      end_time: "2026-05-06T20:00",
-    },
-  ];
+async function reset() {
+  await resetData(db);
+  await loadEmployees();
+  await loadData();
 }
 
 function formatDate(date_string) {
   if (!date_string) return "";
-
   const date = new Date(date_string);
-
   return date.toLocaleString("ru-RU", {
     year: "numeric",
     month: "2-digit",

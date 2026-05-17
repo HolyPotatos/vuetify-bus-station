@@ -7,5 +7,12 @@
 </template>
 
 <script lang="ts" setup>
-  import MainLayout from './components/MainLayout.vue'
+import { onMounted, ref } from "vue";
+import { initDb, provideDb } from "@/plugins/db";
+import MainLayout from "./components/MainLayout.vue";
+
+const db = provideDb();
+onMounted(async () => {
+  await initDb(db);
+});
 </script>

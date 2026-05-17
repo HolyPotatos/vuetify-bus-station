@@ -14,6 +14,7 @@
         <v-list-item link title="Билеты" to="/ticket" />
         <v-list-item link title="Рейсы" to="/trip" />
         <v-list-item link title="Автобусы" to="/bus" />
+        <v-list-item link title="Водители" to="/driver" />
         <v-list-item link title="Перевозчики" to="/carrier" />
         <v-list-item link title="Клиенты" to="/customer" />
         <v-list-item link title="Сотрудники" to="/employee" />

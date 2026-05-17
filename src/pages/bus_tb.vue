@@ -1,9 +1,9 @@
-bus
 <template>
   <v-sheet border rounded>
     <v-data-table
       :headers="headers"
       :hide-default-footer="bus.length < 11"
+      item-value="bus_id"
       :items="bus"
     >
       <template #top>
@@ -15,7 +15,6 @@ bus
               size="x-small"
               start
             />
-
             Автобусы
           </v-toolbar-title>
 
@@ -36,14 +35,14 @@ bus
             color="medium-emphasis"
             icon="mdi-pencil"
             size="small"
-            @click="edit(item.id)"
+            @click="edit(item.bus_id)"
           />
 
           <v-icon
             color="medium-emphasis"
             icon="mdi-delete"
             size="small"
-            @click="remove(item.id)"
+            @click="remove(item.bus_id)"
           />
         </div>
       </template>
@@ -53,7 +52,7 @@ bus
           border
           prepend-icon="mdi-backup-restore"
           rounded="lg"
-          text="Reset data"
+          text="Загрузить тестовые данные"
           variant="text"
           @click="reset"
         />
@@ -64,7 +63,7 @@ bus
   <v-dialog v-model="dialog" max-width="500">
     <v-card
       :subtitle="`${isEditing ? 'Обновите существующий' : 'Создайте новый'} автобус`"
-      :title="`${isEditing ? 'Редактируйте' : 'Добавьте'} автобус`"
+      :title="`${isEditing ? 'Редактирование' : 'Добавление'} автобуса`"
     >
       <template #text>
         <v-row>
@@ -90,12 +89,10 @@ bus
 
           <v-col cols="12">
             <v-select
-              v-model="formModel.carrier"
-              :items="[
-                'ООО «Авто-Транс»',
-                'ООО «Регион-Экспресс»',
-                'ООО «МежгородТранс»',
-              ]"
+              v-model="formModel.carrier_id"
+              item-title="title"
+              item-value="carrier_id"
+              :items="carriers"
               label="Перевозчик"
             />
           </v-col>
@@ -114,26 +111,32 @@ bus
     </v-card>
   </v-dialog>
 </template>
+
 <script setup>
-import { onMounted, ref, shallowRef, toRef } from "vue";
+import { inject, onMounted, ref, shallowRef, toRef } from "vue";
+import { PGLiteKey, resetData } from "@/plugins/db";
+
+const db = inject(PGLiteKey);
 
 function createNewRecord() {
   return {
+    bus_id: null,
+    carrier_id: null,
     brand: "",
     model: "",
     capacity: 1,
     plate_number: "",
-    carrier: "",
   };
 }
 
 const bus = ref([]);
+const carriers = ref([]);
 const formModel = ref(createNewRecord());
 const dialog = shallowRef(false);
-const isEditing = toRef(() => !!formModel.value.id);
+const isEditing = toRef(() => !!formModel.value.bus_id);
 
 const headers = [
-  { title: "Перевозчик", key: "carrier", align: "start" },
+  { title: "Перевозчик", key: "carrier_title", align: "start" },
   { title: "Марка", key: "brand" },
   { title: "Модель", key: "model" },
   { title: "Вместимость", key: "capacity" },
@@ -141,8 +144,44 @@ const headers = [
   { title: "Действия", key: "actions", align: "end", sortable: false },
 ];
 
-onMounted(() => {
-  reset();
+async function loadCarriers() {
+  if (!db) return;
+  try {
+    const res = await db.query(
+      "SELECT carrier_id, title FROM carrier ORDER BY title ASC;",
+    );
+    carriers.value = res.rows;
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function loadData() {
+  if (!db) return;
+  try {
+    const query = `
+      SELECT 
+        b.bus_id, 
+        b.carrier_id, 
+        b.brand, 
+        b.model, 
+        b.capacity, 
+        b.plate_number,
+        c.title AS carrier_title
+      FROM bus b
+      JOIN carrier c ON b.carrier_id = c.carrier_id
+      ORDER BY b.bus_id ASC;
+    `;
+    const res = await db.query(query);
+    bus.value = res.rows;
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+onMounted(async () => {
+  await loadCarriers();
+  await loadData();
 });
 
 function add() {
@@ -150,84 +189,79 @@ function add() {
   dialog.value = true;
 }
 
-function edit(id) {
-  const found = bus.value.find((bus_item) => bus_item.id === id);
-
-  formModel.value = {
-    id: found.id,
-    brand: found.brand,
-    model: found.model,
-    capacity: found.capacity,
-    plate_number: found.plate_number,
-    carrier: found.carrier,
-  };
-
-  dialog.value = true;
+function edit(bus_id) {
+  const found = bus.value.find((b) => b.bus_id === bus_id);
+  if (found) {
+    formModel.value = {
+      bus_id: found.bus_id,
+      carrier_id: found.carrier_id,
+      brand: found.brand,
+      model: found.model,
+      capacity: found.capacity,
+      plate_number: found.plate_number,
+    };
+    dialog.value = true;
+  }
 }
 
-function remove(id) {
-  const index = bus.value.findIndex((bus_item) => bus_item.id === id);
-  bus.value.splice(index, 1);
+async function remove(bus_id) {
+  if (!confirm("Вы уверены?")) return;
+  try {
+    await db.query("DELETE FROM bus WHERE bus_id = $1;", [bus_id]);
+    await loadData();
+  } catch (error) {
+    console.error(error);
+  }
 }
 
-function save() {
-  if (isEditing.value) {
-    const index = bus.value.findIndex(
-      (bus_item) => bus_item.id === formModel.value.id,
-    );
-    bus.value[index] = formModel.value;
-  } else {
-    formModel.value.id = bus.value.length + 1;
-    bus.value.push(formModel.value);
+async function save() {
+  if (!formModel.value.carrier_id) {
+    alert("Пожалуйста, выберите перевозчика");
+    return;
+  }
+  if (
+    !formModel.value.plate_number.trim() ||
+    !formModel.value.brand.trim() ||
+    !formModel.value.model.trim()
+  ) {
+    alert("Заполните обязательные поля (Марка, Модель, Гос. номер)");
+    return;
   }
 
-  dialog.value = false;
+  try {
+    await (isEditing.value
+      ? db.query(
+          "UPDATE bus SET carrier_id = $1, brand = $2, model = $3, capacity = $4, plate_number = $5 WHERE bus_id = $6;",
+          [
+            formModel.value.carrier_id,
+            formModel.value.brand,
+            formModel.value.model,
+            formModel.value.capacity,
+            formModel.value.plate_number,
+            formModel.value.bus_id,
+          ],
+        )
+      : db.query(
+          "INSERT INTO bus (carrier_id, brand, model, capacity, plate_number) VALUES ($1, $2, $3, $4, $5);",
+          [
+            formModel.value.carrier_id,
+            formModel.value.brand,
+            formModel.value.model,
+            formModel.value.capacity,
+            formModel.value.plate_number,
+          ],
+        ));
+    await loadData();
+  } catch (error) {
+    console.error(error);
+  } finally {
+    dialog.value = false;
+  }
 }
 
-function reset() {
-  dialog.value = false;
-  formModel.value = createNewRecord();
-  bus.value = [
-    {
-      id: 1,
-      brand: "Mercedes-Benz",
-      model: "Sprinter",
-      capacity: 19,
-      plate_number: "A123BА77",
-      carrier: "ООО «Авто-Транс»",
-    },
-    {
-      id: 2,
-      brand: "MAN",
-      model: "Lion's Coach",
-      capacity: 49,
-      plate_number: "Х555KX99",
-      carrier: "ООО «Авто-Транс»l",
-    },
-    {
-      id: 3,
-      brand: "Scania",
-      model: "Touring",
-      capacity: 53,
-      plate_number: "M782HH150",
-      carrier: "ООО «Регион-Экспресс»",
-    },
-    {
-      id: 4,
-      brand: "Setra",
-      model: "S 515 HD",
-      capacity: 44,
-      plate_number: "X001EE777",
-      carrier: "ООО «МежгородТранс»",
-    },
-    {
-      id: 5,
-      brand: "Yutong",
-      model: "ZK6122H",
-      capacity: 51,
-      plate_number: "B456OT123",
-      carrier: "ООО «МежгородТранс»",
-    },
-  ];
+async function reset() {
+  await resetData(db);
+  await loadCarriers();
+  await loadData();
 }
 </script>
