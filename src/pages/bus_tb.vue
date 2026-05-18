@@ -42,7 +42,7 @@
             color="medium-emphasis"
             icon="mdi-delete"
             size="small"
-            @click="remove(item.bus_id)"
+            @click="removeClick(item.bus_id)"
           />
         </div>
       </template>
@@ -110,56 +110,89 @@
       </v-card-actions>
     </v-card>
   </v-dialog>
+
+  <v-dialog
+    v-model="confirm"
+    max-width="400"
+    persistent
+  >
+    <v-card
+      prepend-icon="mdi-trash-can"
+      text="Вы действительно хотите удалить запись из базы данных?"
+      title="Подтверждение удаления"
+    >
+      <template #actions>
+        <v-spacer />
+
+        <v-btn @click="confirm = false">
+          Нет
+        </v-btn>
+
+        <v-btn @click="remove()">
+          Да
+        </v-btn>
+      </template>
+    </v-card>
+  </v-dialog>
+
+  <v-snackbar-queue
+    v-model="messages"
+    closable
+    collapsed
+    display-strategy="overflow"
+    :timeout="3000"
+    :total-visible="10"
+  />
 </template>
 
 <script setup>
-import { inject, onMounted, ref, shallowRef, toRef } from "vue";
-import { PGLiteKey, resetData } from "@/plugins/db";
+  import { inject, onMounted, ref, shallowRef, toRef } from 'vue'
+  import { PGLiteKey, resetData } from '@/plugins/db'
 
-const db = inject(PGLiteKey);
+  const db = inject(PGLiteKey)
 
-function createNewRecord() {
-  return {
-    bus_id: null,
-    carrier_id: null,
-    brand: "",
-    model: "",
-    capacity: 1,
-    plate_number: "",
-  };
-}
-
-const bus = ref([]);
-const carriers = ref([]);
-const formModel = ref(createNewRecord());
-const dialog = shallowRef(false);
-const isEditing = toRef(() => !!formModel.value.bus_id);
-
-const headers = [
-  { title: "Перевозчик", key: "carrier_title", align: "start" },
-  { title: "Марка", key: "brand" },
-  { title: "Модель", key: "model" },
-  { title: "Вместимость", key: "capacity" },
-  { title: "Гос. номер", key: "plate_number", align: "end" },
-  { title: "Действия", key: "actions", align: "end", sortable: false },
-];
-
-async function loadCarriers() {
-  if (!db) return;
-  try {
-    const res = await db.query(
-      "SELECT carrier_id, title FROM carrier ORDER BY title ASC;",
-    );
-    carriers.value = res.rows;
-  } catch (error) {
-    console.error(error);
+  function createNewRecord () {
+    return {
+      bus_id: null,
+      carrier_id: null,
+      brand: '',
+      model: '',
+      capacity: 1,
+      plate_number: '',
+    }
   }
-}
 
-async function loadData() {
-  if (!db) return;
-  try {
-    const query = `
+  const bus = ref([])
+  const carriers = ref([])
+  const formModel = ref(createNewRecord())
+  const dialog = shallowRef(false)
+  const isEditing = toRef(() => !!formModel.value.bus_id)
+
+  const headers = [
+    { title: 'Перевозчик', key: 'carrier_title', align: 'start' },
+    { title: 'Марка', key: 'brand' },
+    { title: 'Модель', key: 'model' },
+    { title: 'Вместимость', key: 'capacity' },
+    { title: 'Гос. номер', key: 'plate_number', align: 'end' },
+    { title: 'Действия', key: 'actions', align: 'end', sortable: false },
+  ]
+
+  async function loadCarriers () {
+    if (!db) return
+    try {
+      const res = await db.query(
+        'SELECT carrier_id, title FROM carrier ORDER BY title ASC;',
+      )
+      carriers.value = res.rows
+    } catch (error) {
+      addMessage('error', error)
+    }
+  }
+
+  async function loadData () {
+    if (!db) return
+    try {
+      const query = `
       SELECT 
         b.bus_id, 
         b.carrier_id, 
@@ -171,67 +204,83 @@ async function loadData() {
       FROM bus b
       JOIN carrier c ON b.carrier_id = c.carrier_id
       ORDER BY b.bus_id ASC;
-    `;
-    const res = await db.query(query);
-    bus.value = res.rows;
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-onMounted(async () => {
-  await loadCarriers();
-  await loadData();
-});
-
-function add() {
-  formModel.value = createNewRecord();
-  dialog.value = true;
-}
-
-function edit(bus_id) {
-  const found = bus.value.find((b) => b.bus_id === bus_id);
-  if (found) {
-    formModel.value = {
-      bus_id: found.bus_id,
-      carrier_id: found.carrier_id,
-      brand: found.brand,
-      model: found.model,
-      capacity: found.capacity,
-      plate_number: found.plate_number,
-    };
-    dialog.value = true;
-  }
-}
-
-async function remove(bus_id) {
-  if (!confirm("Вы уверены?")) return;
-  try {
-    await db.query("DELETE FROM bus WHERE bus_id = $1;", [bus_id]);
-    await loadData();
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-async function save() {
-  if (!formModel.value.carrier_id) {
-    alert("Пожалуйста, выберите перевозчика");
-    return;
-  }
-  if (
-    !formModel.value.plate_number.trim() ||
-    !formModel.value.brand.trim() ||
-    !formModel.value.model.trim()
-  ) {
-    alert("Заполните обязательные поля (Марка, Модель, Гос. номер)");
-    return;
+    `
+      const res = await db.query(query)
+      bus.value = res.rows
+    } catch (error) {
+      addMessage('error', error)
+    }
   }
 
-  try {
-    await (isEditing.value
-      ? db.query(
-          "UPDATE bus SET carrier_id = $1, brand = $2, model = $3, capacity = $4, plate_number = $5 WHERE bus_id = $6;",
+  onMounted(async () => {
+    await loadCarriers()
+    await loadData()
+  })
+
+  function add () {
+    formModel.value = createNewRecord()
+    dialog.value = true
+  }
+
+  function edit (bus_id) {
+    const found = bus.value.find(b => b.bus_id === bus_id)
+    if (found) {
+      formModel.value = {
+        bus_id: found.bus_id,
+        carrier_id: found.carrier_id,
+        brand: found.brand,
+        model: found.model,
+        capacity: found.capacity,
+        plate_number: found.plate_number,
+      }
+      dialog.value = true
+    }
+  }
+
+  const confirm = shallowRef(false)
+  const selectedId = ref(-1)
+  const messages = ref([])
+
+  function addMessage (color, error) {
+    messages.value.push({
+      text: `Ошибка: ${error}`,
+      color,
+    })
+  }
+  function removeClick (bus_id) {
+    confirm.value = true
+    selectedId.value = bus_id
+  }
+
+  async function remove () {
+    try {
+      await db.query('DELETE FROM bus WHERE bus_id = $1;', [selectedId.value])
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      confirm.value = false
+    }
+  }
+
+  async function save () {
+    if (!formModel.value.carrier_id) {
+      addMessage('warning', 'Пожалуйста, выберите пер')
+      return
+    }
+    if (
+      !formModel.value.plate_number.trim()
+      || !formModel.value.brand.trim()
+      || !formModel.value.model.trim()
+    ) {
+      addMessage('warning', 'Заполните обязательные поля (Марка, Модель, Гос. номер)')
+      return
+    }
+
+    try {
+      await (isEditing.value
+        ? db.query(
+          'UPDATE bus SET carrier_id = $1, brand = $2, model = $3, capacity = $4, plate_number = $5 WHERE bus_id = $6;',
           [
             formModel.value.carrier_id,
             formModel.value.brand,
@@ -241,8 +290,8 @@ async function save() {
             formModel.value.bus_id,
           ],
         )
-      : db.query(
-          "INSERT INTO bus (carrier_id, brand, model, capacity, plate_number) VALUES ($1, $2, $3, $4, $5);",
+        : db.query(
+          'INSERT INTO bus (carrier_id, brand, model, capacity, plate_number) VALUES ($1, $2, $3, $4, $5);',
           [
             formModel.value.carrier_id,
             formModel.value.brand,
@@ -250,18 +299,18 @@ async function save() {
             formModel.value.capacity,
             formModel.value.plate_number,
           ],
-        ));
-    await loadData();
-  } catch (error) {
-    console.error(error);
-  } finally {
-    dialog.value = false;
+        ))
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      dialog.value = false
+    }
   }
-}
 
-async function reset() {
-  await resetData(db);
-  await loadCarriers();
-  await loadData();
-}
+  async function reset () {
+    await resetData(db)
+    await loadCarriers()
+    await loadData()
+  }
 </script>

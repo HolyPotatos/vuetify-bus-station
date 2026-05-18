@@ -42,7 +42,7 @@
             color="medium-emphasis"
             icon="mdi-delete"
             size="small"
-            @click="remove(item.customer_id)"
+            @click="removeClick(item.customer_id)"
           />
         </div>
       </template>
@@ -106,93 +106,140 @@
       </v-card-actions>
     </v-card>
   </v-dialog>
+
+  <v-dialog
+    v-model="confirm"
+    max-width="400"
+    persistent
+  >
+    <v-card
+      prepend-icon="mdi-trash-can"
+      text="Вы действительно хотите удалить запись из базы данных?"
+      title="Подтверждение удаления"
+    >
+      <template #actions>
+        <v-spacer />
+
+        <v-btn @click="confirm = false">
+          Нет
+        </v-btn>
+
+        <v-btn @click="remove()">
+          Да
+        </v-btn>
+      </template>
+    </v-card>
+  </v-dialog>
+
+  <v-snackbar-queue
+    v-model="messages"
+    closable
+    collapsed
+    display-strategy="overflow"
+    :timeout="3000"
+    :total-visible="10"
+  />
 </template>
 
 <script setup>
-import { inject, onMounted, ref, shallowRef, toRef } from "vue";
-import { PGLiteKey, resetData } from "@/plugins/db";
+  import { inject, onMounted, ref, shallowRef, toRef } from 'vue'
+  import { PGLiteKey, resetData } from '@/plugins/db'
 
-const db = inject(PGLiteKey);
+  const db = inject(PGLiteKey)
 
-function createNewRecord() {
-  return {
-    customer_id: null,
-    surname: "",
-    name: "",
-    patronymic: "",
-    phone_number: "",
-    passport_data: "",
-  };
-}
-
-const customers = ref([]);
-const formModel = ref(createNewRecord());
-const dialog = shallowRef(false);
-const isEditing = toRef(() => !!formModel.value.customer_id);
-
-const headers = [
-  { title: "Фамилия", key: "surname", align: "start" },
-  { title: "Имя", key: "name" },
-  { title: "Отчество", key: "patronymic" },
-  { title: "Номер телефона", key: "phone_number", align: "end" },
-  { title: "Паспорт", key: "passport_data", align: "end" },
-  { title: "Действия", key: "actions", align: "end", sortable: false },
-];
-
-async function loadData() {
-  if (!db) return;
-  try {
-    const res = await db.query(
-      "SELECT * FROM customer ORDER BY customer_id ASC;",
-    );
-    customers.value = res.rows;
-  } catch (error) {
-    console.error(error);
+  function createNewRecord () {
+    return {
+      customer_id: null,
+      surname: '',
+      name: '',
+      patronymic: '',
+      phone_number: '',
+      passport_data: '',
+    }
   }
-}
 
-onMounted(() => {
-  loadData();
-});
+  const customers = ref([])
+  const formModel = ref(createNewRecord())
+  const dialog = shallowRef(false)
+  const isEditing = toRef(() => !!formModel.value.customer_id)
 
-function add() {
-  formModel.value = createNewRecord();
-  dialog.value = true;
-}
+  const headers = [
+    { title: 'Фамилия', key: 'surname', align: 'start' },
+    { title: 'Имя', key: 'name' },
+    { title: 'Отчество', key: 'patronymic' },
+    { title: 'Номер телефона', key: 'phone_number', align: 'end' },
+    { title: 'Паспорт', key: 'passport_data', align: 'end' },
+    { title: 'Действия', key: 'actions', align: 'end', sortable: false },
+  ]
 
-function edit(customer_id) {
-  const found = customers.value.find(
-    (customer) => customer.customer_id === customer_id,
-  );
-  if (found) {
-    formModel.value = {
-      customer_id: found.customer_id,
-      surname: found.surname,
-      name: found.name,
-      patronymic: found.patronymic,
-      phone_number: found.phone_number,
-      passport_data: found.passport_data,
-    };
-    dialog.value = true;
+  async function loadData () {
+    if (!db) return
+    try {
+      const res = await db.query(
+        'SELECT * FROM customer ORDER BY customer_id;',
+      )
+      customers.value = res.rows
+    } catch (error) {
+      addMessage('error', error)
+    }
   }
-}
 
-async function remove(customer_id) {
-  if (!confirm("Вы уверены?")) return;
-  try {
-    await db.query("DELETE FROM customer WHERE customer_id = $1;", [
-      customer_id,
-    ]);
-    await loadData();
-  } catch (error) {
-    console.error(error);
+  onMounted(() => {
+    loadData()
+  })
+
+  function add () {
+    formModel.value = createNewRecord()
+    dialog.value = true
   }
-}
 
-async function save() {
-  try {
-    await (isEditing.value
-      ? db.query(
+  function edit (customer_id) {
+    const found = customers.value.find(
+      customer => customer.customer_id === customer_id,
+    )
+    if (found) {
+      formModel.value = {
+        customer_id: found.customer_id,
+        surname: found.surname,
+        name: found.name,
+        patronymic: found.patronymic,
+        phone_number: found.phone_number,
+        passport_data: found.passport_data,
+      }
+      dialog.value = true
+    }
+  }
+  const confirm = shallowRef(false)
+  const selectedId = ref(-1)
+  const messages = ref([])
+
+  function addMessage (color, error) {
+    messages.value.push({
+      text: `Ошибка: ${error}`,
+      color,
+    })
+  }
+  function removeClick (customer_id) {
+    confirm.value = true
+    selectedId.value = customer_id
+  }
+  async function remove () {
+    try {
+      await db.query('DELETE FROM customer WHERE customer_id = $1;', [
+        selectedId.value,
+      ])
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      confirm.value = false
+    }
+  }
+
+  async function save () {
+    try {
+      await (isEditing.value
+        ? db.query(
           `UPDATE customer SET surname = $1, "name" = $2, patronymic = $3, phone_number = $4, passport_data = $5 WHERE customer_id = $6;`,
           [
             formModel.value.surname,
@@ -203,7 +250,7 @@ async function save() {
             formModel.value.customer_id,
           ],
         )
-      : db.query(
+        : db.query(
           `INSERT INTO customer (surname, "name", patronymic, phone_number, passport_data) VALUES ($1, $2, $3, $4, $5);`,
           [
             formModel.value.surname,
@@ -212,17 +259,17 @@ async function save() {
             formModel.value.phone_number,
             formModel.value.passport_data,
           ],
-        ));
-    await loadData();
-  } catch (error) {
-    console.error(error);
-  } finally {
-    dialog.value = false;
+        ))
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      dialog.value = false
+    }
   }
-}
 
-async function reset() {
-  await resetData(db);
-  await loadData();
-}
+  async function reset () {
+    await resetData(db)
+    await loadData()
+  }
 </script>

@@ -42,7 +42,7 @@
             color="medium-emphasis"
             icon="mdi-delete"
             size="small"
-            @click="remove(item.role_id)"
+            @click="removeClick(item.role_id)"
           />
         </div>
       </template>
@@ -82,97 +82,144 @@
       </v-card-actions>
     </v-card>
   </v-dialog>
+
+  <v-dialog
+    v-model="confirm"
+    max-width="400"
+    persistent
+  >
+    <v-card
+      prepend-icon="mdi-trash-can"
+      text="Вы действительно хотите удалить запись из базы данных?"
+      title="Подтверждение удаления"
+    >
+      <template #actions>
+        <v-spacer />
+
+        <v-btn @click="confirm = false">
+          Нет
+        </v-btn>
+
+        <v-btn @click="remove()">
+          Да
+        </v-btn>
+      </template>
+    </v-card>
+  </v-dialog>
+
+  <v-snackbar-queue
+    v-model="messages"
+    closable
+    collapsed
+    display-strategy="overflow"
+    :timeout="3000"
+    :total-visible="10"
+  />
 </template>
 
 <script setup>
-import { inject, onMounted, ref, shallowRef, toRef } from "vue";
-import { PGLiteKey, resetData } from "@/plugins/db";
+  import { inject, onMounted, ref, shallowRef, toRef } from 'vue'
+  import { PGLiteKey, resetData } from '@/plugins/db'
 
-const db = inject(PGLiteKey);
+  const db = inject(PGLiteKey)
 
-function createNewRecord() {
-  return {
-    role_id: null,
-    title: "",
-  };
-}
-
-const employee_role = ref([]);
-const formModel = ref(createNewRecord());
-const dialog = shallowRef(false);
-const isEditing = toRef(() => !!formModel.value.role_id);
-
-const headers = [
-  { title: "Название роли", key: "title", align: "start" },
-  { title: "Действия", key: "actions", align: "end", sortable: false },
-];
-
-async function loadData() {
-  if (!db) return;
-  try {
-    const res = await db.query('SELECT * FROM "role" ORDER BY role_id ASC;');
-    employee_role.value = res.rows;
-  } catch (error) {
-    console.error("Ошибка при загрузке данных:", error);
-  }
-}
-
-onMounted(() => {
-  loadData();
-});
-
-function add() {
-  formModel.value = createNewRecord();
-  dialog.value = true;
-}
-
-function edit(role_id) {
-  const found = employee_role.value.find((role) => role.role_id === role_id);
-  if (found) {
-    formModel.value = {
-      role_id: found.role_id,
-      title: found.title,
-    };
-    dialog.value = true;
-  }
-}
-
-async function remove(role_id) {
-  if (!confirm("Удалить эту роль?")) return;
-  try {
-    await db.query('DELETE FROM "role" WHERE role_id = $1;', [role_id]);
-    await loadData();
-  } catch (error) {
-    console.error("Ошибка при удалении:", error);
-    alert("Не удалось удалить роль. Возможно, к ней привязаны сотрудники.");
-  }
-}
-
-async function save() {
-  if (!formModel.value.title.trim()) {
-    alert("Название роли не может быть пустым");
-    return;
+  function createNewRecord () {
+    return {
+      role_id: null,
+      title: '',
+    }
   }
 
-  try {
-    await (isEditing.value
-      ? db.query('UPDATE "role" SET title = $1 WHERE role_id = $2;', [
+  const employee_role = ref([])
+  const formModel = ref(createNewRecord())
+  const dialog = shallowRef(false)
+  const isEditing = toRef(() => !!formModel.value.role_id)
+
+  const headers = [
+    { title: 'Название роли', key: 'title', align: 'start' },
+    { title: 'Действия', key: 'actions', align: 'end', sortable: false },
+  ]
+
+  async function loadData () {
+    if (!db) return
+    try {
+      const res = await db.query('SELECT * FROM "role" ORDER BY role_id ASC;')
+      employee_role.value = res.rows
+    } catch (error) {
+      addMessage('error', error)
+    }
+  }
+
+  onMounted(() => {
+    loadData()
+  })
+
+  function add () {
+    formModel.value = createNewRecord()
+    dialog.value = true
+  }
+
+  function edit (role_id) {
+    const found = employee_role.value.find(role => role.role_id === role_id)
+    if (found) {
+      formModel.value = {
+        role_id: found.role_id,
+        title: found.title,
+      }
+      dialog.value = true
+    }
+  }
+
+  const confirm = shallowRef(false)
+  const selectedId = ref(-1)
+  const messages = ref([])
+
+  function addMessage (color, error) {
+    messages.value.push({
+      text: `Ошибка: ${error}`,
+      color,
+    })
+  }
+  function removeClick (role_id) {
+    confirm.value = true
+    selectedId.value = role_id
+  }
+  async function remove () {
+    try {
+      await db.query('DELETE FROM "role" WHERE role_id = $1;', [selectedId.value])
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      confirm.value = false
+    }
+  }
+
+  async function save () {
+    if (!formModel.value.title.trim()) {
+      addMessage('warning', 'Название роли не может быть пустым')
+      return
+    }
+
+    try {
+      await (isEditing.value
+        ? db.query('UPDATE "role" SET title = $1 WHERE role_id = $2;', [
           formModel.value.title,
           formModel.value.role_id,
         ])
-      : db.query('INSERT INTO "role" (title) VALUES ($1);', [
+        : db.query('INSERT INTO "role" (title) VALUES ($1);', [
           formModel.value.title,
-        ]));
-    await loadData();
-  } catch (error) {
-    console.error("Ошибка при сохранении:", error);
-  } finally {
-    dialog.value = false;
+        ]))
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      dialog.value = false
+    }
   }
-}
 
-async function reset() {
-  await resetData(db);
-  await loadData();
-}
+  async function reset () {
+    await resetData(db)
+    await loadData()
+  }
 </script>

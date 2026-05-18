@@ -46,7 +46,7 @@
             color="medium-emphasis"
             icon="mdi-delete"
             size="small"
-            @click="remove(item.ticket_id)"
+            @click="removeClick(item.ticket_id)"
           />
         </div>
       </template>
@@ -162,88 +162,121 @@
       </v-card-actions>
     </v-card>
   </v-dialog>
+
+  <v-dialog
+    v-model="confirm"
+    max-width="400"
+    persistent
+  >
+    <v-card
+      prepend-icon="mdi-trash-can"
+      text="Вы действительно хотите удалить запись из базы данных?"
+      title="Подтверждение удаления"
+    >
+      <template #actions>
+        <v-spacer />
+
+        <v-btn @click="confirm = false">
+          Нет
+        </v-btn>
+
+        <v-btn @click="remove()">
+          Да
+        </v-btn>
+      </template>
+    </v-card>
+  </v-dialog>
+
+  <v-snackbar-queue
+    v-model="messages"
+    closable
+    collapsed
+    display-strategy="overflow"
+    :timeout="3000"
+    :total-visible="10"
+  />
 </template>
 
 <script setup>
-import { inject, onMounted, ref, shallowRef, toRef } from "vue";
-import { PGLiteKey, resetData } from "@/plugins/db";
+  import { inject, onMounted, ref, shallowRef, toRef } from 'vue'
+  import { PGLiteKey, resetData } from '@/plugins/db'
 
-const db = inject(PGLiteKey);
+  const db = inject(PGLiteKey)
 
-function createNewRecord() {
-  return {
-    ticket_id: null,
-    trip_id: null,
-    shift_id: null,
-    customer_id: null,
-    bus_stop_in_id: null,
-    bus_stop_out_id: null,
-    purchase_date: "",
-    price: 0,
-    seat_number: "",
-    status: "Активный",
-  };
-}
+  function createNewRecord () {
+    return {
+      ticket_id: null,
+      trip_id: null,
+      shift_id: null,
+      customer_id: null,
+      bus_stop_in_id: null,
+      bus_stop_out_id: null,
+      purchase_date: '',
+      price: 0,
+      seat_number: '',
+      status: 'Активный',
+    }
+  }
 
-const tickets = ref([]);
-const tripsList = ref([]);
-const shiftsList = ref([]);
-const customersList = ref([]);
-const busStopsList = ref([]);
+  const tickets = ref([])
+  const tripsList = ref([])
+  const shiftsList = ref([])
+  const customersList = ref([])
+  const busStopsList = ref([])
 
-const formModel = ref(createNewRecord());
-const dialog = shallowRef(false);
-const isEditing = toRef(() => !!formModel.value.ticket_id);
+  const formModel = ref(createNewRecord())
+  const dialog = shallowRef(false)
+  const isEditing = toRef(() => !!formModel.value.ticket_id)
 
-const headers = [
-  { title: "Рейс", key: "trip_name", align: "start" },
-  { title: "Кассир", key: "employee_name" },
-  { title: "Клиент", key: "customer_name" },
-  { title: "Станция посадки", key: "bus_stop_in_title" },
-  { title: "Станция высадки", key: "bus_stop_out_title" },
-  { title: "Время покупки", key: "purchase_date" },
-  { title: "Цена", key: "price" },
-  { title: "Место", key: "seat_number" },
-  { title: "Статус", key: "status" },
-  { title: "Действия", key: "actions", align: "end", sortable: false },
-];
+  const headers = [
+    { title: 'Рейс', key: 'trip_name', align: 'start' },
+    { title: 'Кассир', key: 'employee_name' },
+    { title: 'Клиент', key: 'customer_name' },
+    { title: 'Станция посадки', key: 'bus_stop_in_title' },
+    { title: 'Станция высадки', key: 'bus_stop_out_title' },
+    { title: 'Время покупки', key: 'purchase_date' },
+    { title: 'Цена', key: 'price' },
+    { title: 'Место', key: 'seat_number' },
+    { title: 'Статус', key: 'status' },
+    { title: 'Действия', key: 'actions', align: 'end', sortable: false },
+  ]
 
-async function loadRelations() {
-  if (!db) return;
-  try {
-    const tRes = await db.query(
-      `SELECT trip_id, 'Рейс ' || trip_id AS trip_name FROM trip ORDER BY trip_id DESC;`,
-    );
-    tripsList.value = tRes.rows;
+  async function loadRelations () {
+    if (!db) return
+    try {
+      const tRes = await db.query(
+        `SELECT trip_id, 'Рейс ' || trip_id AS trip_name FROM trip ORDER BY trip_id DESC;`,
+      )
+      tripsList.value = tRes.rows
 
-    const sRes = await db.query(`
+      const sRes = await db.query(`
       SELECT s.shift_id, 'Смена ' || s.shift_id || ' (' || e.surname || ' ' || substring(e."name" from 1 for 1) || '.)' AS shift_name 
       FROM shift s 
       JOIN employee e ON s.employee_id = e.employee_id 
       ORDER BY s.shift_id DESC;
-    `);
-    shiftsList.value = sRes.rows;
+    `)
+      shiftsList.value = sRes.rows
 
-    const cRes = await db.query(`
+      const cRes = await db.query(`
       SELECT customer_id, surname || ' ' || substring("name" from 1 for 1) || '.' AS customer_name 
       FROM customer 
       ORDER BY surname ASC;
-    `);
-    customersList.value = cRes.rows;
+    `)
+      customersList.value = cRes.rows
 
-    const bsRes = await db.query(
-      `SELECT bus_stop_id, title FROM bus_stop ORDER BY title ASC;`,
-    );
-    busStopsList.value = bsRes.rows;
-  } catch (error) {
-    console.error(error);
+      const bsRes = await db.query(
+        `SELECT bus_stop_id, title FROM bus_stop ORDER BY title ASC;`,
+      )
+      busStopsList.value = bsRes.rows
+    } catch (error) {
+      addMessage('error', error)
+    }
   }
-}
 
-async function loadData() {
-  if (!db) return;
-  try {
-    const query = `
+  async function loadData () {
+    if (!db) return
+    try {
+      const query = `
       SELECT 
         tk.ticket_id, tk.trip_id, tk.shift_id, tk.customer_id, tk.bus_stop_in_id, tk.bus_stop_out_id,
         tk.purchase_date, tk.price, tk.seat_number, tk.status,
@@ -259,94 +292,110 @@ async function loadData() {
       JOIN bus_stop bs_in ON tk.bus_stop_in_id = bs_in.bus_stop_id
       JOIN bus_stop bs_out ON tk.bus_stop_out_id = bs_out.bus_stop_id
       ORDER BY tk.purchase_date DESC;
-    `;
-    const res = await db.query(query);
-    tickets.value = res.rows;
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-onMounted(async () => {
-  await loadRelations();
-  await loadData();
-});
-
-function formatForInput(date_string) {
-  if (!date_string) return "";
-  const d = new Date(date_string);
-  const pad = (n) => n.toString().padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function formatDate(date_string) {
-  if (!date_string) return "";
-  const date = new Date(date_string);
-  return date.toLocaleString("ru-RU", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function add() {
-  formModel.value = createNewRecord();
-  dialog.value = true;
-}
-
-function edit(ticket_id) {
-  const found = tickets.value.find((t) => t.ticket_id === ticket_id);
-  if (found) {
-    formModel.value = {
-      ticket_id: found.ticket_id,
-      trip_id: found.trip_id,
-      shift_id: found.shift_id,
-      customer_id: found.customer_id,
-      bus_stop_in_id: found.bus_stop_in_id,
-      bus_stop_out_id: found.bus_stop_out_id,
-      purchase_date: formatForInput(found.purchase_date),
-      price: Number(found.price),
-      seat_number: found.seat_number,
-      status: found.status,
-    };
-    dialog.value = true;
-  }
-}
-
-async function remove(ticket_id) {
-  if (!confirm("Вы уверены?")) return;
-  try {
-    await db.query("DELETE FROM ticket WHERE ticket_id = $1;", [ticket_id]);
-    await loadData();
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-async function save() {
-  if (
-    !formModel.value.trip_id ||
-    !formModel.value.shift_id ||
-    !formModel.value.customer_id ||
-    !formModel.value.bus_stop_in_id ||
-    !formModel.value.bus_stop_out_id ||
-    !formModel.value.purchase_date ||
-    !formModel.value.seat_number
-  ) {
-    alert("Пожалуйста, заполните все поля");
-    return;
+    `
+      const res = await db.query(query)
+      tickets.value = res.rows
+    } catch (error) {
+      addMessage('error', error)
+    }
   }
 
-  if (formModel.value.bus_stop_in_id === formModel.value.bus_stop_out_id) {
-    alert("Станция посадки и высадки не могут совпадать");
-    return;
+  onMounted(async () => {
+    await loadRelations()
+    await loadData()
+  })
+
+  function formatForInput (date_string) {
+    if (!date_string) return ''
+    const d = new Date(date_string)
+    const pad = n => n.toString().padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
   }
 
-  try {
-    await (isEditing.value
-      ? db.query(
+  function formatDate (date_string) {
+    if (!date_string) return ''
+    const date = new Date(date_string)
+    return date.toLocaleString('ru-RU', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
+
+  function add () {
+    formModel.value = createNewRecord()
+    dialog.value = true
+  }
+
+  function edit (ticket_id) {
+    const found = tickets.value.find(t => t.ticket_id === ticket_id)
+    if (found) {
+      formModel.value = {
+        ticket_id: found.ticket_id,
+        trip_id: found.trip_id,
+        shift_id: found.shift_id,
+        customer_id: found.customer_id,
+        bus_stop_in_id: found.bus_stop_in_id,
+        bus_stop_out_id: found.bus_stop_out_id,
+        purchase_date: formatForInput(found.purchase_date),
+        price: Number(found.price),
+        seat_number: found.seat_number,
+        status: found.status,
+      }
+      dialog.value = true
+    }
+  }
+
+  const confirm = shallowRef(false)
+  const selectedId = ref(-1)
+  const messages = ref([])
+
+  function addMessage (color, error) {
+    messages.value.push({
+      text: `Ошибка: ${error}`,
+      color,
+    })
+  }
+  function removeClick (ticket_id) {
+    confirm.value = true
+    selectedId.value = ticket_id
+  }
+
+  async function remove () {
+    try {
+      await db.query('DELETE FROM ticket WHERE ticket_id = $1;', [selectedId.value])
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      confirm.value = false
+    }
+  }
+
+  async function save () {
+    if (
+      !formModel.value.trip_id
+      || !formModel.value.shift_id
+      || !formModel.value.customer_id
+      || !formModel.value.bus_stop_in_id
+      || !formModel.value.bus_stop_out_id
+      || !formModel.value.purchase_date
+      || !formModel.value.seat_number
+    ) {
+      addMessage('warning', 'Пожалуйста, заполните все поля')
+      return
+    }
+
+    if (formModel.value.bus_stop_in_id === formModel.value.bus_stop_out_id) {
+      addMessage('warning', 'Станция посадки и высадки не могут совпадать')
+      return
+    }
+
+    try {
+      await (isEditing.value
+        ? db.query(
           `UPDATE ticket 
          SET trip_id = $1, shift_id = $2, customer_id = $3, bus_stop_in_id = $4, bus_stop_out_id = $5, purchase_date = $6, price = $7, seat_number = $8, status = $9 
          WHERE ticket_id = $10;`,
@@ -363,7 +412,7 @@ async function save() {
             formModel.value.ticket_id,
           ],
         )
-      : db.query(
+        : db.query(
           `INSERT INTO ticket 
          (trip_id, shift_id, customer_id, bus_stop_in_id, bus_stop_out_id, purchase_date, price, seat_number, status) 
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`,
@@ -378,18 +427,18 @@ async function save() {
             formModel.value.seat_number,
             formModel.value.status,
           ],
-        ));
-    await loadData();
-  } catch (error) {
-    console.error(error);
-  } finally {
-    dialog.value = false;
+        ))
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      dialog.value = false
+    }
   }
-}
 
-async function reset() {
-  await resetData(db);
-  await loadRelations();
-  await loadData();
-}
+  async function reset () {
+    await resetData(db)
+    await loadRelations()
+    await loadData()
+  }
 </script>

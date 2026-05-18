@@ -42,7 +42,7 @@
             color="medium-emphasis"
             icon="mdi-delete"
             size="small"
-            @click="remove(item.route_stop_id)"
+            @click="removeClick(item.route_stop_id)"
           />
         </div>
       </template>
@@ -116,60 +116,93 @@
       </v-card-actions>
     </v-card>
   </v-dialog>
+
+  <v-dialog
+    v-model="confirm"
+    max-width="400"
+    persistent
+  >
+    <v-card
+      prepend-icon="mdi-trash-can"
+      text="Вы действительно хотите удалить запись из базы данных?"
+      title="Подтверждение удаления"
+    >
+      <template #actions>
+        <v-spacer />
+
+        <v-btn @click="confirm = false">
+          Нет
+        </v-btn>
+
+        <v-btn @click="remove()">
+          Да
+        </v-btn>
+      </template>
+    </v-card>
+  </v-dialog>
+
+  <v-snackbar-queue
+    v-model="messages"
+    closable
+    collapsed
+    display-strategy="overflow"
+    :timeout="3000"
+    :total-visible="10"
+  />
 </template>
 
 <script setup>
-import { inject, onMounted, ref, shallowRef, toRef } from "vue";
-import { PGLiteKey, resetData } from "@/plugins/db";
+  import { inject, onMounted, ref, shallowRef, toRef } from 'vue'
+  import { PGLiteKey, resetData } from '@/plugins/db'
 
-const db = inject(PGLiteKey);
+  const db = inject(PGLiteKey)
 
-function createNewRecord() {
-  return {
-    route_stop_id: null,
-    route_id: null,
-    bus_stop_id: null,
-    stop_order: 1,
-    travel_time: 0,
-  };
-}
-
-const route_stops = ref([]);
-const routesList = ref([]);
-const busStopsList = ref([]);
-const formModel = ref(createNewRecord());
-const dialog = shallowRef(false);
-const isEditing = toRef(() => !!formModel.value.route_stop_id);
-
-const headers = [
-  { title: "Маршрут", key: "route_title", align: "start" },
-  { title: "Остановка", key: "bus_stop_title" },
-  { title: "Порядковый номер", key: "stop_order" },
-  { title: "Время в пути (мин)", key: "travel_time", align: "end" },
-  { title: "Действия", key: "actions", align: "end", sortable: false },
-];
-
-async function loadRoutesAndStops() {
-  if (!db) return;
-  try {
-    const routesRes = await db.query(
-      "SELECT route_id, title FROM route ORDER BY title ASC;",
-    );
-    routesList.value = routesRes.rows;
-
-    const stopsRes = await db.query(
-      "SELECT bus_stop_id, title FROM bus_stop ORDER BY title ASC;",
-    );
-    busStopsList.value = stopsRes.rows;
-  } catch (error) {
-    console.error(error);
+  function createNewRecord () {
+    return {
+      route_stop_id: null,
+      route_id: null,
+      bus_stop_id: null,
+      stop_order: 1,
+      travel_time: 0,
+    }
   }
-}
 
-async function loadData() {
-  if (!db) return;
-  try {
-    const query = `
+  const route_stops = ref([])
+  const routesList = ref([])
+  const busStopsList = ref([])
+  const formModel = ref(createNewRecord())
+  const dialog = shallowRef(false)
+  const isEditing = toRef(() => !!formModel.value.route_stop_id)
+
+  const headers = [
+    { title: 'Маршрут', key: 'route_title', align: 'start' },
+    { title: 'Остановка', key: 'bus_stop_title' },
+    { title: 'Порядковый номер', key: 'stop_order' },
+    { title: 'Время в пути (мин)', key: 'travel_time', align: 'end' },
+    { title: 'Действия', key: 'actions', align: 'end', sortable: false },
+  ]
+
+  async function loadRoutesAndStops () {
+    if (!db) return
+    try {
+      const routesRes = await db.query(
+        'SELECT route_id, title FROM route ORDER BY title ASC;',
+      )
+      routesList.value = routesRes.rows
+
+      const stopsRes = await db.query(
+        'SELECT bus_stop_id, title FROM bus_stop ORDER BY title ASC;',
+      )
+      busStopsList.value = stopsRes.rows
+    } catch (error) {
+      caddMessage('error', error)
+    }
+  }
+
+  async function loadData () {
+    if (!db) return
+    try {
+      const query = `
       SELECT 
         rs.route_stop_id,
         rs.route_id,
@@ -182,62 +215,76 @@ async function loadData() {
       JOIN route r ON rs.route_id = r.route_id
       JOIN bus_stop bs ON rs.bus_stop_id = bs.bus_stop_id
       ORDER BY rs.route_id ASC, rs.stop_order ASC;
-    `;
-    const res = await db.query(query);
-    route_stops.value = res.rows;
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-onMounted(async () => {
-  await loadRoutesAndStops();
-  await loadData();
-});
-
-function add() {
-  formModel.value = createNewRecord();
-  dialog.value = true;
-}
-
-function edit(route_stop_id) {
-  const found = route_stops.value.find(
-    (rs) => rs.route_stop_id === route_stop_id,
-  );
-  if (found) {
-    formModel.value = {
-      route_stop_id: found.route_stop_id,
-      route_id: found.route_id,
-      bus_stop_id: found.bus_stop_id,
-      stop_order: found.stop_order,
-      travel_time: found.travel_time,
-    };
-    dialog.value = true;
-  }
-}
-
-async function remove(route_stop_id) {
-  if (!confirm("Вы уверены?")) return;
-  try {
-    await db.query("DELETE FROM route_stop WHERE route_stop_id = $1;", [
-      route_stop_id,
-    ]);
-    await loadData();
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-async function save() {
-  if (!formModel.value.route_id || !formModel.value.bus_stop_id) {
-    alert("Пожалуйста, выберите маршрут и остановку");
-    return;
+    `
+      const res = await db.query(query)
+      route_stops.value = res.rows
+    } catch (error) {
+      addMessage('error', error)
+    }
   }
 
-  try {
-    await (isEditing.value
-      ? db.query(
-          "UPDATE route_stop SET route_id = $1, bus_stop_id = $2, stop_order = $3, travel_time = $4 WHERE route_stop_id = $5;",
+  onMounted(async () => {
+    await loadRoutesAndStops()
+    await loadData()
+  })
+
+  function add () {
+    formModel.value = createNewRecord()
+    dialog.value = true
+  }
+
+  function edit (route_stop_id) {
+    const found = route_stops.value.find(
+      rs => rs.route_stop_id === route_stop_id,
+    )
+    if (found) {
+      formModel.value = {
+        route_stop_id: found.route_stop_id,
+        route_id: found.route_id,
+        bus_stop_id: found.bus_stop_id,
+        stop_order: found.stop_order,
+        travel_time: found.travel_time,
+      }
+      dialog.value = true
+    }
+  }
+  const confirm = shallowRef(false)
+  const selectedId = ref(-1)
+  const messages = ref([])
+
+  function addMessage (color, error) {
+    messages.value.push({
+      text: `Ошибка: ${error}`,
+      color,
+    })
+  }
+  function removeClick (route_stop_id) {
+    confirm.value = true
+    selectedId.value = route_stop_id
+  }
+  async function remove () {
+    try {
+      await db.query('DELETE FROM route_stop WHERE route_stop_id = $1;', [
+        selectedId.value,
+      ])
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      confirm.value = false
+    }
+  }
+
+  async function save () {
+    if (!formModel.value.route_id || !formModel.value.bus_stop_id) {
+      addMessage('warning', 'Пожалуйста, выберите маршрут и остановку')
+      return
+    }
+
+    try {
+      await (isEditing.value
+        ? db.query(
+          'UPDATE route_stop SET route_id = $1, bus_stop_id = $2, stop_order = $3, travel_time = $4 WHERE route_stop_id = $5;',
           [
             formModel.value.route_id,
             formModel.value.bus_stop_id,
@@ -246,26 +293,26 @@ async function save() {
             formModel.value.route_stop_id,
           ],
         )
-      : db.query(
-          "INSERT INTO route_stop (route_id, bus_stop_id, stop_order, travel_time) VALUES ($1, $2, $3, $4);",
+        : db.query(
+          'INSERT INTO route_stop (route_id, bus_stop_id, stop_order, travel_time) VALUES ($1, $2, $3, $4);',
           [
             formModel.value.route_id,
             formModel.value.bus_stop_id,
             formModel.value.stop_order,
             formModel.value.travel_time,
           ],
-        ));
-    await loadData();
-  } catch (error) {
-    console.error(error);
-  } finally {
-    dialog.value = false;
+        ))
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      dialog.value = false
+    }
   }
-}
 
-async function reset() {
-  await resetData(db);
-  await loadRoutesAndStops();
-  await loadData();
-}
+  async function reset () {
+    await resetData(db)
+    await loadRoutesAndStops()
+    await loadData()
+  }
 </script>

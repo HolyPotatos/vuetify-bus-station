@@ -42,7 +42,7 @@
             color="medium-emphasis"
             icon="mdi-delete"
             size="small"
-            @click="remove(item.carrier_id)"
+            @click="removeClick(item.carrier_id)"
           />
         </div>
       </template>
@@ -94,94 +94,143 @@
       </v-card-actions>
     </v-card>
   </v-dialog>
+
+  <v-dialog
+    v-model="confirm"
+    max-width="400"
+    persistent
+  >
+    <v-card
+      prepend-icon="mdi-trash-can"
+      text="Вы действительно хотите удалить запись из базы данных?"
+      title="Подтверждение удаления"
+    >
+      <template #actions>
+        <v-spacer />
+
+        <v-btn @click="confirm = false">
+          Нет
+        </v-btn>
+
+        <v-btn @click="remove()">
+          Да
+        </v-btn>
+      </template>
+    </v-card>
+  </v-dialog>
+
+  <v-snackbar-queue
+    v-model="messages"
+    closable
+    collapsed
+    display-strategy="overflow"
+    :timeout="3000"
+    :total-visible="10"
+  />
 </template>
 <script setup>
-import { inject, onMounted, ref, shallowRef, toRef } from "vue";
-import { PGLiteKey, resetData } from "@/plugins/db";
+  import { inject, onMounted, ref, shallowRef, toRef } from 'vue'
+  import { PGLiteKey, resetData } from '@/plugins/db'
 
-const db = inject(PGLiteKey);
+  const db = inject(PGLiteKey)
 
-function createNewRecord() {
-  return {
-    carrier_id: null,
-    title: "",
-    contact_phone: "",
-  };
-}
-
-const carriers = ref([]);
-const formModel = ref(createNewRecord());
-const dialog = shallowRef(false);
-const isEditing = toRef(() => !!formModel.value.carrier_id);
-
-const headers = [
-  { title: "Название перевозчика", key: "title", align: "start" },
-  { title: "Контактный телефон", key: "contact_phone" },
-  { title: "Действия", key: "actions", align: "end", sortable: false },
-];
-
-async function loadData() {
-  if (!db) return;
-  const res = await db.query("SELECT * FROM carrier");
-  carriers.value = res.rows;
-}
-
-onMounted(() => {
-  loadData();
-});
-
-function add() {
-  formModel.value = createNewRecord();
-  dialog.value = true;
-}
-
-function edit(carrier_id) {
-  const found = carriers.value.find(
-    (carrier) => carrier.carrier_id === carrier_id,
-  );
-  formModel.value = {
-    carrier_id: found.carrier_id,
-    title: found.title,
-    contact_phone: found.contact_phone,
-  };
-  dialog.value = true;
-}
-
-async function remove(carrier_id) {
-  if (!confirm("Удалить эту роль?")) return;
-  try {
-    await db.query("DELETE FROM carrier WHERE carrier_id = $1;", [carrier_id]);
-    await loadData();
-  } catch (error) {
-    console.error("Ошибка при удалении:", error);
+  function createNewRecord () {
+    return {
+      carrier_id: null,
+      title: '',
+      contact_phone: '',
+    }
   }
-}
 
-async function save() {
-  try {
-    await (isEditing.value
-      ? db.query(
-          "UPDATE carrier SET title = $1, contact_phone = $2 WHERE carrier_id = $3;",
+  const carriers = ref([])
+  const formModel = ref(createNewRecord())
+  const dialog = shallowRef(false)
+  const isEditing = toRef(() => !!formModel.value.carrier_id)
+
+  const headers = [
+    { title: 'Название перевозчика', key: 'title', align: 'start' },
+    { title: 'Контактный телефон', key: 'contact_phone' },
+    { title: 'Действия', key: 'actions', align: 'end', sortable: false },
+  ]
+
+  async function loadData () {
+    if (!db) return
+    const res = await db.query('SELECT * FROM carrier')
+    carriers.value = res.rows
+  }
+
+  onMounted(() => {
+    loadData()
+  })
+
+  function add () {
+    formModel.value = createNewRecord()
+    dialog.value = true
+  }
+
+  function edit (carrier_id) {
+    const found = carriers.value.find(
+      carrier => carrier.carrier_id === carrier_id,
+    )
+    formModel.value = {
+      carrier_id: found.carrier_id,
+      title: found.title,
+      contact_phone: found.contact_phone,
+    }
+    dialog.value = true
+  }
+
+  const confirm = shallowRef(false)
+  const selectedId = ref(-1)
+  const messages = ref([])
+
+  function addMessage (color, error) {
+    messages.value.push({
+      text: `Ошибка: ${error}`,
+      color,
+    })
+  }
+  function removeClick (carrier_id) {
+    confirm.value = true
+    selectedId.value = carrier_id
+  }
+
+  async function remove () {
+    try {
+      await db.query('DELETE FROM carrier WHERE carrier_id = $1;', [selectedId.value])
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      confirm.value = false
+    }
+  }
+
+  async function save () {
+    try {
+      await (isEditing.value
+        ? db.query(
+          'UPDATE carrier SET title = $1, contact_phone = $2 WHERE carrier_id = $3;',
           [
             formModel.value.title,
             formModel.value.contact_phone,
             formModel.value.carrier_id,
           ],
         )
-      : db.query(
-          "INSERT INTO carrier (title, contact_phone) VALUES ($1, $2);",
+        : db.query(
+          'INSERT INTO carrier (title, contact_phone) VALUES ($1, $2);',
           [formModel.value.title, formModel.value.contact_phone],
-        ));
-    await loadData();
-  } catch (error) {
-    console.error("Ошибка при сохранении:", error);
-  } finally {
-    dialog.value = false;
+        ))
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      dialog.value = false
+    }
   }
-}
 
-async function reset() {
-  await resetData(db);
-  await loadData();
-}
+  async function reset () {
+    await resetData(db)
+    await loadData()
+  }
 </script>

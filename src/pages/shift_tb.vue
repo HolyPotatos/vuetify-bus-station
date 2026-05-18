@@ -50,7 +50,7 @@
             color="medium-emphasis"
             icon="mdi-delete"
             size="small"
-            @click="remove(item.shift_id)"
+            @click="removeClick(item.shift_id)"
           />
         </div>
       </template>
@@ -112,57 +112,90 @@
       </v-card-actions>
     </v-card>
   </v-dialog>
+
+  <v-dialog
+    v-model="confirm"
+    max-width="400"
+    persistent
+  >
+    <v-card
+      prepend-icon="mdi-trash-can"
+      text="Вы действительно хотите удалить запись из базы данных?"
+      title="Подтверждение удаления"
+    >
+      <template #actions>
+        <v-spacer />
+
+        <v-btn @click="confirm = false">
+          Нет
+        </v-btn>
+
+        <v-btn @click="remove()">
+          Да
+        </v-btn>
+      </template>
+    </v-card>
+  </v-dialog>
+
+  <v-snackbar-queue
+    v-model="messages"
+    closable
+    collapsed
+    display-strategy="overflow"
+    :timeout="3000"
+    :total-visible="10"
+  />
 </template>
 
 <script setup>
-import { inject, onMounted, ref, shallowRef, toRef } from "vue";
-import { PGLiteKey, resetData } from "@/plugins/db";
+  import { inject, onMounted, ref, shallowRef, toRef } from 'vue'
+  import { PGLiteKey, resetData } from '@/plugins/db'
 
-const db = inject(PGLiteKey);
+  const db = inject(PGLiteKey)
 
-function createNewRecord() {
-  return {
-    shift_id: null,
-    employee_id: null,
-    start_time: "",
-    end_time: "",
-  };
-}
+  function createNewRecord () {
+    return {
+      shift_id: null,
+      employee_id: null,
+      start_time: '',
+      end_time: '',
+    }
+  }
 
-const shifts = ref([]);
-const employees = ref([]);
-const formModel = ref(createNewRecord());
-const dialog = shallowRef(false);
-const isEditing = toRef(() => !!formModel.value.shift_id);
+  const shifts = ref([])
+  const employees = ref([])
+  const formModel = ref(createNewRecord())
+  const dialog = shallowRef(false)
+  const isEditing = toRef(() => !!formModel.value.shift_id)
 
-const headers = [
-  { title: "Сотрудник", key: "employee_name", align: "start" },
-  { title: "Начало смены", key: "start_time" },
-  { title: "Конец смены", key: "end_time" },
-  { title: "Действия", key: "actions", align: "end", sortable: false },
-];
+  const headers = [
+    { title: 'Сотрудник', key: 'employee_name', align: 'start' },
+    { title: 'Начало смены', key: 'start_time' },
+    { title: 'Конец смены', key: 'end_time' },
+    { title: 'Действия', key: 'actions', align: 'end', sortable: false },
+  ]
 
-async function loadEmployees() {
-  if (!db) return;
-  try {
-    const query = `
+  async function loadEmployees () {
+    if (!db) return
+    try {
+      const query = `
       SELECT 
         employee_id, 
         surname || ' ' || substring("name" from 1 for 1) || '.' || COALESCE(substring(patronymic from 1 for 1) || '.', '') AS short_name 
       FROM employee 
       WHERE role_id IN (3, 4)
       ORDER BY surname ASC;
-    `;
-    const res = await db.query(query);
-    employees.value = res.rows;
-  } catch (error) {
-    console.error(error);
+    `
+      const res = await db.query(query)
+      employees.value = res.rows
+    } catch (error) {
+      addMessage('error', error)
+    }
   }
-}
-async function loadData() {
-  if (!db) return;
-  try {
-    const query = `
+  async function loadData () {
+    if (!db) return
+    try {
+      const query = `
       SELECT 
         s.shift_id, 
         s.employee_id, 
@@ -172,78 +205,91 @@ async function loadData() {
       FROM shift s
       JOIN employee e ON s.employee_id = e.employee_id
       ORDER BY s.start_time DESC;
-    `;
-    const res = await db.query(query);
-    shifts.value = res.rows;
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-onMounted(async () => {
-  await loadEmployees();
-  await loadData();
-});
-
-function add() {
-  formModel.value = createNewRecord();
-  dialog.value = true;
-}
-
-function formatForInput(date_string) {
-  if (!date_string) return "";
-  const d = new Date(date_string);
-  const pad = (n) => n.toString().padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function edit(shift_id) {
-  const found = shifts.value.find((s) => s.shift_id === shift_id);
-  if (found) {
-    formModel.value = {
-      shift_id: found.shift_id,
-      employee_id: found.employee_id,
-      start_time: formatForInput(found.start_time),
-      end_time: formatForInput(found.end_time),
-    };
-    dialog.value = true;
-  }
-}
-
-async function remove(shift_id) {
-  if (!confirm("Вы уверены?")) return;
-  try {
-    await db.query("DELETE FROM shift WHERE shift_id = $1;", [shift_id]);
-    await loadData();
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-async function save() {
-  if (
-    !formModel.value.employee_id ||
-    !formModel.value.start_time ||
-    !formModel.value.end_time
-  ) {
-    alert("Заполните все поля");
-    return;
+    `
+      const res = await db.query(query)
+      shifts.value = res.rows
+    } catch (error) {
+      addMessage('error', error)
+    }
   }
 
-  const start = new Date(formModel.value.start_time);
-  const end = new Date(formModel.value.end_time);
+  onMounted(async () => {
+    await loadEmployees()
+    await loadData()
+  })
 
-  if (end <= start) {
-    alert(
-      "Ошибка: время окончания смены должно быть строго больше времени начала",
-    );
-    return;
+  function add () {
+    formModel.value = createNewRecord()
+    dialog.value = true
   }
 
-  try {
-    await (isEditing.value
-      ? db.query(
-          "UPDATE shift SET employee_id = $1, start_time = $2, end_time = $3 WHERE shift_id = $4;",
+  function formatForInput (date_string) {
+    if (!date_string) return ''
+    const d = new Date(date_string)
+    const pad = n => n.toString().padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  function edit (shift_id) {
+    const found = shifts.value.find(s => s.shift_id === shift_id)
+    if (found) {
+      formModel.value = {
+        shift_id: found.shift_id,
+        employee_id: found.employee_id,
+        start_time: formatForInput(found.start_time),
+        end_time: formatForInput(found.end_time),
+      }
+      dialog.value = true
+    }
+  }
+  const confirm = shallowRef(false)
+  const selectedId = ref(-1)
+  const messages = ref([])
+
+  function addMessage (color, error) {
+    messages.value.push({
+      text: `Ошибка: ${error}`,
+      color,
+    })
+  }
+  function removeClick (shift_id) {
+    confirm.value = true
+    selectedId.value = shift_id
+  }
+
+  async function remove () {
+    try {
+      await db.query('DELETE FROM shift WHERE shift_id = $1;', [selectedId.value])
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      confirm.value = false
+    }
+  }
+
+  async function save () {
+    if (
+      !formModel.value.employee_id
+      || !formModel.value.start_time
+      || !formModel.value.end_time
+    ) {
+      addMessage('warning', 'Заполните все поля')
+      return
+    }
+
+    const start = new Date(formModel.value.start_time)
+    const end = new Date(formModel.value.end_time)
+
+    if (end <= start) {
+      addMessage('warning', 'Ошибка: время окончания смены должно быть строго больше времени начала')
+      return
+    }
+
+    try {
+      await (isEditing.value
+        ? db.query(
+          'UPDATE shift SET employee_id = $1, start_time = $2, end_time = $3 WHERE shift_id = $4;',
           [
             formModel.value.employee_id,
             formModel.value.start_time,
@@ -251,37 +297,37 @@ async function save() {
             formModel.value.shift_id,
           ],
         )
-      : db.query(
-          "INSERT INTO shift (employee_id, start_time, end_time) VALUES ($1, $2, $3);",
+        : db.query(
+          'INSERT INTO shift (employee_id, start_time, end_time) VALUES ($1, $2, $3);',
           [
             formModel.value.employee_id,
             formModel.value.start_time,
             formModel.value.end_time,
           ],
-        ));
-    await loadData();
-  } catch (error) {
-    console.error(error);
-  } finally {
-    dialog.value = false;
+        ))
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      dialog.value = false
+    }
   }
-}
 
-async function reset() {
-  await resetData(db);
-  await loadEmployees();
-  await loadData();
-}
+  async function reset () {
+    await resetData(db)
+    await loadEmployees()
+    await loadData()
+  }
 
-function formatDate(date_string) {
-  if (!date_string) return "";
-  const date = new Date(date_string);
-  return date.toLocaleString("ru-RU", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+  function formatDate (date_string) {
+    if (!date_string) return ''
+    const date = new Date(date_string)
+    return date.toLocaleString('ru-RU', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
 </script>

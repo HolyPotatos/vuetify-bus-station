@@ -42,7 +42,7 @@
             color="medium-emphasis"
             icon="mdi-delete"
             size="small"
-            @click="remove(item.bus_stop_id)"
+            @click="removeClick(item.bus_stop_id)"
           />
         </div>
       </template>
@@ -87,102 +87,150 @@
       </v-card-actions>
     </v-card>
   </v-dialog>
+
+  <v-dialog
+    v-model="confirm"
+    max-width="400"
+    persistent
+  >
+    <v-card
+      prepend-icon="mdi-trash-can"
+      text="Вы действительно хотите удалить запись из базы данных?"
+      title="Подтверждение удаления"
+    >
+      <template #actions>
+        <v-spacer />
+
+        <v-btn @click="confirm = false">
+          Нет
+        </v-btn>
+
+        <v-btn @click="remove()">
+          Да
+        </v-btn>
+      </template>
+    </v-card>
+  </v-dialog>
+
+  <v-snackbar-queue
+    v-model="messages"
+    closable
+    collapsed
+    display-strategy="overflow"
+    :timeout="3000"
+    :total-visible="10"
+  />
 </template>
 
 <script setup>
-import { inject, onMounted, ref, shallowRef, toRef } from "vue";
-import { PGLiteKey, resetData } from "@/plugins/db";
+  import { inject, onMounted, ref, shallowRef, toRef } from 'vue'
+  import { PGLiteKey, resetData } from '@/plugins/db'
 
-const db = inject(PGLiteKey);
+  const db = inject(PGLiteKey)
 
-function createNewRecord() {
-  return {
-    bus_stop_id: null,
-    title: "",
-  };
-}
-
-const bus_stops = ref([]);
-const formModel = ref(createNewRecord());
-const dialog = shallowRef(false);
-const isEditing = toRef(() => !!formModel.value.bus_stop_id);
-
-const headers = [
-  { title: "Название остановки", key: "title", align: "start" },
-  { title: "Действия", key: "actions", align: "end", sortable: false },
-];
-
-async function loadData() {
-  if (!db) return;
-  try {
-    const res = await db.query(
-      "SELECT * FROM bus_stop ORDER BY bus_stop_id ASC;",
-    );
-    bus_stops.value = res.rows;
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-onMounted(() => {
-  loadData();
-});
-
-function add() {
-  formModel.value = createNewRecord();
-  dialog.value = true;
-}
-
-function edit(bus_stop_id) {
-  const found = bus_stops.value.find(
-    (bus_stop) => bus_stop.bus_stop_id === bus_stop_id,
-  );
-  if (found) {
-    formModel.value = {
-      bus_stop_id: found.bus_stop_id,
-      title: found.title,
-    };
-    dialog.value = true;
-  }
-}
-
-async function remove(bus_stop_id) {
-  if (!confirm("Вы уверены?")) return;
-  try {
-    await db.query("DELETE FROM bus_stop WHERE bus_stop_id = $1;", [
-      bus_stop_id,
-    ]);
-    await loadData();
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-async function save() {
-  if (!formModel.value.title.trim()) {
-    alert("Название остановки не может быть пустым");
-    return;
+  function createNewRecord () {
+    return {
+      bus_stop_id: null,
+      title: '',
+    }
   }
 
-  try {
-    await (isEditing.value
-      ? db.query("UPDATE bus_stop SET title = $1 WHERE bus_stop_id = $2;", [
+  const bus_stops = ref([])
+  const formModel = ref(createNewRecord())
+  const dialog = shallowRef(false)
+  const isEditing = toRef(() => !!formModel.value.bus_stop_id)
+
+  const headers = [
+    { title: 'Название остановки', key: 'title', align: 'start' },
+    { title: 'Действия', key: 'actions', align: 'end', sortable: false },
+  ]
+
+  async function loadData () {
+    if (!db) return
+    try {
+      const res = await db.query(
+        'SELECT * FROM bus_stop ORDER BY bus_stop_id ASC;',
+      )
+      bus_stops.value = res.rows
+    } catch (error) {
+      addMessage('error', error)
+    }
+  }
+
+  onMounted(() => {
+    loadData()
+  })
+
+  function add () {
+    formModel.value = createNewRecord()
+    dialog.value = true
+  }
+
+  function edit (bus_stop_id) {
+    const found = bus_stops.value.find(
+      bus_stop => bus_stop.bus_stop_id === bus_stop_id,
+    )
+    if (found) {
+      formModel.value = {
+        bus_stop_id: found.bus_stop_id,
+        title: found.title,
+      }
+      dialog.value = true
+    }
+  }
+
+  const confirm = shallowRef(false)
+  const selectedId = ref(-1)
+  const messages = ref([])
+
+  function addMessage (color, error) {
+    messages.value.push({
+      text: `Ошибка: ${error}`,
+      color,
+    })
+  }
+  function removeClick (bus_stop_id) {
+    confirm.value = true
+    selectedId.value = bus_stop_id
+  }
+  async function remove () {
+    try {
+      await db.query('DELETE FROM bus_stop WHERE bus_stop_id = $1;', [
+        selectedId.value,
+      ])
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      confirm.value = false
+    }
+  }
+
+  async function save () {
+    if (!formModel.value.title.trim()) {
+      addMessage('warning', 'Название остановки не может быть пустым')
+      return
+    }
+
+    try {
+      await (isEditing.value
+        ? db.query('UPDATE bus_stop SET title = $1 WHERE bus_stop_id = $2;', [
           formModel.value.title,
           formModel.value.bus_stop_id,
         ])
-      : db.query("INSERT INTO bus_stop (title) VALUES ($1);", [
+        : db.query('INSERT INTO bus_stop (title) VALUES ($1);', [
           formModel.value.title,
-        ]));
-    await loadData();
-  } catch (error) {
-    console.error(error);
-  } finally {
-    dialog.value = false;
+        ]))
+      await loadData()
+    } catch (error) {
+      addMessage('error', error)
+    } finally {
+      dialog.value = false
+    }
   }
-}
 
-async function reset() {
-  await resetData(db);
-  await loadData();
-}
+  async function reset () {
+    await resetData(db)
+    await loadData()
+  }
 </script>
